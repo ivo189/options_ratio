@@ -22,7 +22,7 @@ import math
 import os
 import sys
 import time
-from typing import Optional
+from concurrent.futures import ThreadPoolExecutor
 
 from dotenv import load_dotenv
 from rich.console import Console
@@ -123,7 +123,6 @@ def print_candidates(
 
     for rank, c in enumerate(candidates[:top_n], start=1):
         d = c.describe()
-        upper_be = f"{d['upper_BE']}" if c.ratio == 1 else f"{d['upper_BE']}"
         table.add_row(
             str(rank),
             f"{c.long_strike:.2f}",
@@ -135,7 +134,7 @@ def print_candidates(
             _color_debit(c.net_debit),
             _color_funding(c.funding_ratio * 100),
             f"{d['lower_BE']:.2f}",
-            str(upper_be),
+            str(d["upper_BE"]),
             f"{d['max_profit_$']:.0f}",
             _color_score(c.score),
         )
@@ -185,6 +184,13 @@ def main() -> None:
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
 
+    if not 1 <= args.gap <= 4:
+        console.print("[red]--gap must be between 1 and 4[/red]")
+        sys.exit(1)
+    if not 1 <= args.ratio <= 4:
+        console.print("[red]--ratio must be between 1 and 4[/red]")
+        sys.exit(1)
+
     symbol = args.symbol.upper()
     expiration = args.expiration.replace("-", "")
 
@@ -202,21 +208,29 @@ def main() -> None:
         sys.exit(1)
 
     try:
-        # 1. Get underlying price for OTM filtering
-        console.print(f"[cyan]Fetching {symbol} underlying price …[/cyan]")
-        underlying_price = get_underlying_price(client, symbol)
+        # Fetch underlying price and option parameters concurrently (independent requests)
+        console.print(f"[cyan]Fetching {symbol} underlying price and option parameters …[/cyan]")
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            price_fut = pool.submit(get_underlying_price, client, symbol)
+            params_fut = pool.submit(client.request_option_params, symbol)
+            underlying_price = price_fut.result()
+            all_strikes = params_fut.result().get("strikes", [])
+
         if not math.isnan(underlying_price):
             console.print(f"  → Underlying last/mid: [green]${underlying_price:.2f}[/green]")
         else:
             console.print("  → [yellow]Could not determine underlying price; OTM filter disabled.[/yellow]")
 
-        # 2. Fetch the options chain
-        strike_range: Optional[tuple[float, float]] = None
-        if args.strike_low or args.strike_high:
-            lo = args.strike_low or 0.0
-            hi = args.strike_high or float("inf")
-            strike_range = (lo, hi)
+        if not all_strikes:
+            console.print(f"[red]No option parameters returned for {symbol}. Is it optionable?[/red]")
+            sys.exit(1)
 
+        # Build strike range filter
+        strike_range: tuple[float, float] | None = None
+        if args.strike_low or args.strike_high:
+            strike_range = (args.strike_low or 0.0, args.strike_high or float("inf"))
+
+        # Fetch the options chain (strikes pre-supplied; skips internal option-params request)
         console.print(f"[cyan]Fetching call chain for {symbol} exp={expiration} …[/cyan]")
         t0 = time.time()
         chain_df = fetch_chain(
@@ -224,6 +238,7 @@ def main() -> None:
             symbol=symbol,
             expiration=expiration,
             right="C",
+            strikes=all_strikes,
             timeout_per_strike=6.0,
             underlying_price=underlying_price,
             otm_only=not args.no_otm_filter,
@@ -240,18 +255,17 @@ def main() -> None:
             console.print("[red]No valid quotes received. Check market hours and TWS market data subscriptions.[/red]")
             sys.exit(1)
 
-        # 3. Analyze spreads
+        # Analyze spreads
         console.print("[cyan]Analyzing ratio bull-spread combinations …[/cyan]")
         candidates = analyze_bull_spreads(
             chain_df=chain_df,
-            max_gap_steps=min(args.gap, 4),
-            max_ratio=min(args.ratio, 4),
+            max_gap_steps=args.gap,
+            max_ratio=args.ratio,
             min_funding_pct=args.min_funding,
             top_n=args.top,
         )
         console.print(f"  → [green]{len(candidates)} candidates[/green] found")
 
-        # 4. Display results
         print_candidates(
             candidates=candidates,
             symbol=symbol,

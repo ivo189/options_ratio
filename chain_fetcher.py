@@ -11,7 +11,6 @@ import logging
 import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from typing import Optional
 
 import pandas as pd
 from ibapi.contract import Contract
@@ -28,8 +27,6 @@ MAX_WORKERS = 10
 @dataclass
 class OptionQuote:
     strike: float
-    expiration: str   # YYYYMMDD
-    right: str        # "C" or "P"
     bid: float
     ask: float
     mid: float
@@ -59,16 +56,25 @@ def _make_option_contract(symbol: str, expiration: str, strike: float, right: st
     return c
 
 
+def _make_stk_contract(symbol: str) -> Contract:
+    c = Contract()
+    c.symbol = symbol
+    c.secType = "STK"
+    c.exchange = "SMART"
+    c.currency = "USD"
+    return c
+
+
 def fetch_chain(
     client: IBKRClient,
     symbol: str,
     expiration: str,
     right: str = "C",
-    strikes: Optional[list[float]] = None,
+    strikes: list[float] | None = None,
     timeout_per_strike: float = 5.0,
-    underlying_price: Optional[float] = None,
+    underlying_price: float | None = None,
     otm_only: bool = True,
-    strike_range: Optional[tuple[float, float]] = None,
+    strike_range: tuple[float, float] | None = None,
 ) -> pd.DataFrame:
     """
     Fetch bid/ask for every call (or put) strike for *symbol* on *expiration*.
@@ -79,7 +85,7 @@ def fetch_chain(
     symbol              : underlying ticker, e.g. "SPY"
     expiration          : "YYYYMMDD"
     right               : "C" or "P"
-    strikes             : explicit list of strikes to query (optional)
+    strikes             : explicit list of strikes to query (skip option-params request)
     timeout_per_strike  : seconds to wait for each quote
     underlying_price    : if provided and otm_only=True, filter OTM strikes
     otm_only            : skip deep ITM strikes (reduces requests)
@@ -123,8 +129,6 @@ def fetch_chain(
         data = client.request_option_snapshot(contract, timeout=timeout_per_strike)
         return OptionQuote(
             strike=strike,
-            expiration=expiration,
-            right=right,
             bid=data.get("bid", float("nan")),
             ask=data.get("ask", float("nan")),
             mid=data.get("mid", float("nan")),
@@ -141,7 +145,7 @@ def fetch_chain(
 
     quotes.sort(key=lambda q: q.strike)
 
-    df = pd.DataFrame(
+    return pd.DataFrame(
         [
             {
                 "strike": q.strike,
@@ -154,18 +158,11 @@ def fetch_chain(
             for q in quotes
         ]
     )
-    return df
 
 
 def get_underlying_price(client: IBKRClient, symbol: str) -> float:
     """Fetch the last trade price of the underlying stock."""
-    contract = Contract()
-    contract.symbol = symbol
-    contract.secType = "STK"
-    contract.exchange = "SMART"
-    contract.currency = "USD"
-
-    data = client.request_option_snapshot(contract, timeout=5.0)
+    data = client.request_option_snapshot(_make_stk_contract(symbol), timeout=5.0)
     price = data.get("last", float("nan"))
     if math.isnan(price):
         price = data.get("mid", float("nan"))

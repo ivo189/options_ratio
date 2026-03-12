@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Optional
 
 import pandas as pd
 
@@ -150,29 +149,22 @@ def analyze_bull_spreads(
     """
     valid = chain_df[chain_df["valid"]].copy()
     valid = valid.sort_values("strike").reset_index(drop=True)
+    # After reset_index, the DataFrame index equals the positional row number (0, 1, 2, …)
 
-    strikes = valid["strike"].tolist()
-    n = len(strikes)
-
+    n = len(valid)
     candidates: list[SpreadCandidate] = []
 
     for i, long_row in valid.iterrows():
-        long_strike = long_row["strike"]
         long_ask = long_row["ask"]
-
         if long_ask <= 0 or math.isnan(long_ask):
             continue
 
         for gap in range(1, max_gap_steps + 1):
-            j = list(valid.index).index(i) + gap if i in valid.index else -1
-            # Find the strike that is `gap` positions away in the sorted list
-            idx_in_list = strikes.index(long_strike)
-            short_idx = idx_in_list + gap
+            short_idx = i + gap  # i is positional after reset_index
             if short_idx >= n:
                 break
 
-            short_strike = strikes[short_idx]
-            short_row = valid[valid["strike"] == short_strike].iloc[0]
+            short_row = valid.iloc[short_idx]
             short_bid = short_row["bid"]
 
             if short_bid <= 0 or math.isnan(short_bid):
@@ -184,8 +176,8 @@ def analyze_bull_spreads(
                     continue
 
                 cand = SpreadCandidate(
-                    long_strike=long_strike,
-                    short_strike=short_strike,
+                    long_strike=long_row["strike"],
+                    short_strike=short_row["strike"],
                     ratio=ratio,
                     gap_steps=gap,
                     long_ask=long_ask,

@@ -5,16 +5,18 @@ Manages the connection lifecycle and provides a clean interface
 for requesting market data via the ibapi EClient/EWrapper.
 """
 
+import math
 import threading
-import time
 import logging
-from typing import Optional
 
 from ibapi.client import EClient
 from ibapi.wrapper import EWrapper
 from ibapi.contract import Contract
 
 logger = logging.getLogger(__name__)
+
+# Informational message codes that are not errors (market data farm status, etc.)
+_INFO_CODES = {2104, 2106, 2107, 2108, 2119, 2158, 10167}
 
 
 class IBKRClient(EWrapper, EClient):
@@ -35,12 +37,10 @@ class IBKRClient(EWrapper, EClient):
         self._next_req_id = 1
         self._req_id_lock = threading.Lock()
 
-        # Callbacks registered per request id: req_id -> callable
-        self._callbacks: dict = {}
-
-        # Chain of option expirations received from reqSecDefOptParams
-        self.option_params: dict = {}  # symbol -> {"expirations": [...], "strikes": [...]}
-        self._option_params_event: dict = {}  # symbol -> Event
+        # Option params: symbol -> {"expirations": [...], "strikes": [...]}
+        self.option_params: dict = {}
+        self._option_params_event: dict = {}   # symbol -> Event
+        self._req_id_to_symbol: dict = {}      # req_id -> symbol (for callback routing)
 
         # Tick data per req_id: req_id -> {"bid": float, "ask": float, "last": float}
         self.tick_data: dict = {}
@@ -83,9 +83,7 @@ class IBKRClient(EWrapper, EClient):
         self._connected.set()
 
     def error(self, reqId: int, errorCode: int, errorString: str, advancedOrderRejectJson: str = "") -> None:  # noqa: N802
-        # Suppress informational codes (2104, 2106, 2158 = market data farm)
-        info_codes = {2104, 2106, 2158, 2119, 2108, 2107, 10167}
-        if errorCode in info_codes:
+        if errorCode in _INFO_CODES:
             logger.debug("IBKR info [%d]: %s", errorCode, errorString)
             return
         logger.warning("IBKR error req=%d code=%d: %s", reqId, errorCode, errorString)
@@ -97,7 +95,7 @@ class IBKRClient(EWrapper, EClient):
     # Option parameters (expirations + strikes)
     # ------------------------------------------------------------------
 
-    def request_option_params(self, symbol: str, exchange: str = "SMART", sec_type: str = "STK") -> dict:
+    def request_option_params(self, symbol: str, sec_type: str = "STK") -> dict:
         """
         Returns {"expirations": sorted list of "YYYYMMDD" strings,
                  "strikes": sorted list of floats}
@@ -106,13 +104,17 @@ class IBKRClient(EWrapper, EClient):
         req_id = self.next_req_id()
         event = threading.Event()
         self._option_params_event[symbol] = event
+        self._req_id_to_symbol[req_id] = symbol
         self.option_params[symbol] = {"expirations": [], "strikes": []}
 
-        # underConId = 0 means look it up by symbol
+        # underConId = 0 means look it up by symbol; exchange "" = all exchanges
         self.reqSecDefOptParams(req_id, symbol, "", sec_type, 0)
 
         if not event.wait(timeout=15):
             logger.warning("Timeout waiting for option params for %s", symbol)
+
+        self._option_params_event.pop(symbol, None)
+        self._req_id_to_symbol.pop(req_id, None)
         return self.option_params[symbol]
 
     def securityDefinitionOptionParameter(  # noqa: N802
@@ -125,18 +127,22 @@ class IBKRClient(EWrapper, EClient):
         expirations,
         strikes,
     ) -> None:
-        # We want SMART exchange data preferably
-        for symbol, data in self.option_params.items():
-            if exchange in ("SMART", "CBOE"):
-                data["expirations"] = sorted(expirations)
-                data["strikes"] = sorted(strikes)
-                if symbol in self._option_params_event:
-                    self._option_params_event[symbol].set()
-                break
+        symbol = self._req_id_to_symbol.get(reqId)
+        if symbol is None:
+            return
+        if exchange not in ("SMART", "CBOE"):
+            return
+        data = self.option_params.get(symbol)
+        if data is None:
+            return
+        data["expirations"] = sorted(expirations)
+        data["strikes"] = sorted(strikes)
+        if symbol in self._option_params_event:
+            self._option_params_event[symbol].set()
 
     def securityDefinitionOptionParameterEnd(self, reqId: int) -> None:  # noqa: N802
-        # Fire all pending events in case we only got non-SMART exchanges
-        for symbol, event in self._option_params_event.items():
+        # Fire all pending events in case we only got non-SMART/CBOE exchanges
+        for event in self._option_params_event.values():
             event.set()
 
     # ------------------------------------------------------------------
@@ -164,28 +170,27 @@ class IBKRClient(EWrapper, EClient):
 
         bid = data.get("bid", float("nan"))
         ask = data.get("ask", float("nan"))
-        mid = (bid + ask) / 2 if not (bid != bid or ask != ask) else float("nan")
-        data["mid"] = mid
+        data["mid"] = (bid + ask) / 2 if not (math.isnan(bid) or math.isnan(ask)) else float("nan")
         return data
 
     def tickPrice(self, reqId: int, tickType: int, price: float, attrib) -> None:  # noqa: N802
         """
         Tick types relevant to us:
-          1 = BID, 2 = ASK, 4 = LAST, 9 = CLOSE, 66 = DELAYED_BID, 67 = DELAYED_ASK
+          1 = BID, 2 = ASK, 4 = LAST, 66 = DELAYED_BID, 67 = DELAYED_ASK, 68 = DELAYED_LAST
         """
-        if reqId not in self.tick_data:
+        d = self.tick_data.get(reqId)
+        if d is None:
             return
         if tickType in (1, 66):
-            self.tick_data[reqId]["bid"] = price if price > 0 else float("nan")
+            d["bid"] = price if price > 0 else float("nan")
         elif tickType in (2, 67):
-            self.tick_data[reqId]["ask"] = price if price > 0 else float("nan")
+            d["ask"] = price if price > 0 else float("nan")
         elif tickType in (4, 68):
-            self.tick_data[reqId]["last"] = price if price > 0 else float("nan")
+            d["last"] = price if price > 0 else float("nan")
 
-        # Fire the event once we have both bid and ask (or they remain nan)
-        d = self.tick_data[reqId]
+        # Fire the event once we have both bid and ask
         if reqId in self._tick_events:
-            if not (d["bid"] != d["bid"]) and not (d["ask"] != d["ask"]):
+            if not math.isnan(d["bid"]) and not math.isnan(d["ask"]):
                 self._tick_events[reqId].set()
 
     def tickSnapshotEnd(self, reqId: int) -> None:  # noqa: N802
