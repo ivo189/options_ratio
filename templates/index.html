@@ -904,19 +904,10 @@ function drawChart(chain, candidates) {
   // Legend
   ctx.font = "9px monospace"; ctx.textAlign = "left";
   const lx = W - PAD.right + 4, ly = PAD.top + 10;
-  [[var("--green"),  "bid"], [var2("--red"), "ask"], ["#58a6ff", "mid"]].forEach(([c, lbl], i) => {
+  [["#3fb950", "bid"], ["#f85149", "ask"], ["#58a6ff", "mid"]].forEach(([c, lbl], i) => {
     ctx.fillStyle = c; ctx.fillText("●", lx, ly + i * 13);
     ctx.fillStyle = "#4d5561"; ctx.fillText(" " + lbl, lx + 9, ly + i * 13);
   });
-}
-function var_(name) {
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-}
-// inline helper since we can't use CSS vars in canvas
-function var2(name) { return var_(name); }
-function var_(n) {
-  const m = { "--green":"#3fb950", "--red":"#f85149", "--blue":"#58a6ff" };
-  return m[n] || "#888";
 }
 
 // ── Colour helpers ────────────────────────────────────────────────────────────
