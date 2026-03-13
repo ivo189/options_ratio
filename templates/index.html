@@ -20,6 +20,7 @@
     --purple: #bc8cff;
     --cyan: #39c5cf;
     --accent: #1f6feb;
+    --orange: #e3b341;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -34,40 +35,99 @@
   header {
     background: var(--surface);
     border-bottom: 1px solid var(--border);
-    padding: 12px 24px;
+    padding: 0 24px;
+    height: 48px;
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 16px;
   }
-  header h1 { font-size: 15px; font-weight: 600; color: var(--text); }
-  header .subtitle { color: var(--text-muted); font-size: 12px; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+  header h1 { font-size: 14px; font-weight: 600; }
+  .header-right { margin-left: auto; display: flex; align-items: center; gap: 16px; }
+
+  /* Market status pill */
+  .market-pill {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    border: 1px solid transparent;
+    transition: all .3s;
+  }
+  .market-pill.open   { background: #0f2a1a; border-color: #2ea043; color: var(--green-bright); }
+  .market-pill.closed { background: #1f1a10; border-color: #6e5019; color: var(--orange); }
+  .market-pill.pre    { background: #101828; border-color: #1f4fa0; color: var(--blue); }
+  .market-pill .pip {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: currentColor;
+  }
+  .market-pill.open .pip { animation: pulse 1.5s infinite; }
+  @keyframes pulse {
+    0%,100% { opacity:1; } 50% { opacity:.3; }
+  }
+  .market-time { font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+  /* Auto-refresh controls */
+  .refresh-ctrl {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .refresh-toggle {
+    position: relative;
+    width: 32px; height: 18px;
+    cursor: pointer;
+  }
+  .refresh-toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle-track {
+    position: absolute;
+    inset: 0;
+    background: var(--border);
+    border-radius: 9px;
+    transition: background .2s;
+  }
+  .refresh-toggle input:checked + .toggle-track { background: var(--accent); }
+  .toggle-thumb {
+    position: absolute;
+    top: 2px; left: 2px;
+    width: 14px; height: 14px;
+    background: #fff;
+    border-radius: 50%;
+    transition: left .2s;
+  }
+  .refresh-toggle input:checked ~ .toggle-thumb { left: 16px; }
+  #refresh-countdown {
+    font-variant-numeric: tabular-nums;
+    min-width: 28px;
+    color: var(--blue);
+    font-weight: 600;
+  }
 
   /* ── Layout ── */
   .layout {
     display: grid;
-    grid-template-columns: 280px 1fr;
-    gap: 0;
-    height: calc(100vh - 49px);
+    grid-template-columns: 272px 1fr;
+    height: calc(100vh - 48px);
   }
 
   /* ── Sidebar ── */
   aside {
     background: var(--surface);
     border-right: 1px solid var(--border);
-    padding: 20px 16px;
+    padding: 16px 14px;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: 18px;
   }
   .section-label {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: .06em;
-    color: var(--text-muted);
-    margin-bottom: 10px;
+    font-size: 10px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .06em;
+    color: var(--text-muted); margin-bottom: 8px;
   }
   label { display: block; color: var(--text-muted); font-size: 11px; margin-bottom: 4px; }
   input, select {
@@ -108,7 +168,7 @@
 
   .load-exp-btn {
     width: auto;
-    padding: 5px 10px;
+    padding: 4px 9px;
     font-size: 11px;
     background: var(--surface2);
     color: var(--text-muted);
@@ -119,127 +179,107 @@
   }
   .load-exp-btn:hover { color: var(--text); }
 
-  /* stats row */
+  /* ── Stale-data banner ── */
+  .stale-banner {
+    display: none;
+    padding: 8px 20px;
+    background: #1f1610;
+    border-bottom: 1px solid #6e5019;
+    font-size: 11px;
+    color: var(--orange);
+    gap: 8px;
+    align-items: center;
+  }
+  .stale-banner.show { display: flex; }
+  .stale-banner strong { font-weight: 600; }
+  .stale-banner button {
+    width: auto;
+    padding: 2px 8px;
+    font-size: 11px;
+    background: transparent;
+    border: 1px solid currentColor;
+    color: currentColor;
+    border-radius: 4px;
+    margin-left: auto;
+    cursor: pointer;
+  }
+
+  /* Stats */
   .stats {
     display: flex;
-    gap: 12px;
+    gap: 20px;
     flex-wrap: wrap;
-    padding: 12px 20px;
+    padding: 10px 20px;
     background: var(--surface);
-    border-bottom: 1px solid var(--border);
-  }
-  .stat { display: flex; flex-direction: column; }
-  .stat-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; }
-  .stat-value { font-size: 15px; font-weight: 600; color: var(--text); }
-
-  /* ── Main content ── */
-  main {
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-
-  /* ── Chart ── */
-  .chart-area {
-    padding: 16px 20px 8px;
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
   }
-  .chart-title { font-size: 11px; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: .05em; }
-  #chain-chart {
-    width: 100%;
-    height: 110px;
-    display: block;
-  }
+  .stat { display: flex; flex-direction: column; }
+  .stat-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; }
+  .stat-value { font-size: 14px; font-weight: 600; }
 
-  /* ── Table ── */
-  .table-wrap {
-    flex: 1;
-    overflow: auto;
-    padding: 0 0 20px;
+  /* ── Main ── */
+  main { display: flex; flex-direction: column; overflow: hidden; }
+
+  /* Chart */
+  .chart-area {
+    padding: 12px 20px 6px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
   }
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 12px;
-  }
+  .chart-title { font-size: 10px; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .05em; }
+  #chain-chart { width: 100%; height: 100px; display: block; }
+
+  /* Table */
+  .table-wrap { flex: 1; overflow: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
   thead th {
-    position: sticky;
-    top: 0;
+    position: sticky; top: 0;
     background: var(--surface);
     border-bottom: 1px solid var(--border);
-    padding: 8px 12px;
+    padding: 7px 11px;
     text-align: right;
-    font-size: 10px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: .05em;
-    color: var(--text-muted);
-    white-space: nowrap;
-    cursor: pointer;
-    user-select: none;
+    font-size: 10px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .05em;
+    color: var(--text-muted); white-space: nowrap;
+    cursor: pointer; user-select: none;
   }
   thead th:first-child { text-align: center; }
   thead th:hover { color: var(--text); }
   thead th.sorted { color: var(--blue); }
   thead th.sorted::after { content: " ↓"; }
   thead th.sorted.asc::after { content: " ↑"; }
-
-  tbody tr {
-    border-bottom: 1px solid #1e242b;
-    transition: background .1s;
-  }
+  tbody tr { border-bottom: 1px solid #1c2128; transition: background .1s; }
   tbody tr:hover { background: var(--surface2); }
   td {
-    padding: 7px 12px;
-    text-align: right;
-    white-space: nowrap;
-    font-variant-numeric: tabular-nums;
+    padding: 6px 11px; text-align: right;
+    white-space: nowrap; font-variant-numeric: tabular-nums;
   }
   td:first-child { text-align: center; color: var(--text-muted); }
   td.strike { color: var(--blue); font-weight: 500; }
-
-  /* colour badges */
-  .badge {
-    display: inline-block;
-    padding: 1px 6px;
-    border-radius: 4px;
-    font-size: 11px;
-    font-weight: 600;
+  .ratio-badge {
+    background: #1f2d3d; color: var(--blue);
+    padding: 1px 7px; border-radius: 4px;
+    font-size: 11px; font-weight: 600;
   }
   .green-bright { color: var(--green-bright); }
-  .green { color: var(--green); }
+  .green  { color: var(--green); }
   .yellow { color: var(--yellow); }
-  .red { color: var(--red); }
-  .cyan { color: var(--cyan); }
+  .red    { color: var(--red); }
+  .cyan   { color: var(--cyan); }
   .purple { color: var(--purple); }
 
-  .ratio-badge {
-    background: #1f2d3d;
-    color: var(--blue);
-    padding: 1px 7px;
-    border-radius: 4px;
-    font-size: 11px;
-    font-weight: 600;
-  }
-
-  /* ── State messages ── */
+  /* State boxes */
   .state-box {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 12px;
-    color: var(--text-muted);
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 12px; color: var(--text-muted);
   }
   .state-box .icon { font-size: 36px; }
-  .state-box p { font-size: 13px; max-width: 300px; text-align: center; line-height: 1.5; }
+  .state-box p { font-size: 13px; max-width: 300px; text-align: center; line-height: 1.6; }
   .error-msg { color: var(--red); }
-
-  /* spinner */
   .spinner {
-    width: 32px; height: 32px;
+    width: 30px; height: 30px;
     border: 3px solid var(--border);
     border-top-color: var(--accent);
     border-radius: 50%;
@@ -247,55 +287,31 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  /* ── Progress bar ── */
   #progress-bar {
-    height: 2px;
-    background: var(--accent);
-    width: 0;
-    transition: width .3s;
-    position: fixed;
-    top: 0; left: 0;
+    height: 2px; background: var(--accent);
+    width: 0; transition: width .3s;
+    position: fixed; top: 0; left: 0; z-index: 100;
   }
 
-  /* ── Toast ── */
+  /* Toast */
   #toast {
-    position: fixed;
-    bottom: 20px; right: 20px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 10px 16px;
-    font-size: 12px;
-    opacity: 0;
-    transition: opacity .2s;
-    pointer-events: none;
-    max-width: 320px;
+    position: fixed; bottom: 20px; right: 20px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 9px 14px; font-size: 12px;
+    opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 320px;
   }
   #toast.show { opacity: 1; }
-  #toast.err { border-color: var(--red); color: var(--red); }
+  #toast.err  { border-color: var(--red); color: var(--red); }
 
-  /* ── Tooltip ── */
-  .help {
-    display: inline-block;
-    width: 14px; height: 14px;
-    border-radius: 50%;
-    background: var(--border);
-    color: var(--text-muted);
-    font-size: 10px;
-    text-align: center;
-    line-height: 14px;
-    cursor: help;
-    margin-left: 4px;
-    vertical-align: middle;
+  .legend {
+    padding: 6px 20px; font-size: 10px; color: var(--text-muted);
+    border-top: 1px solid var(--border); flex-shrink: 0;
   }
 
-  /* legend */
-  .legend {
-    padding: 8px 20px;
-    font-size: 11px;
-    color: var(--text-muted);
-    border-top: 1px solid var(--border);
-    flex-shrink: 0;
+  .help {
+    display: inline-block; width: 13px; height: 13px; border-radius: 50%;
+    background: var(--border); color: var(--text-muted); font-size: 9px;
+    text-align: center; line-height: 13px; cursor: help; margin-left: 3px; vertical-align: middle;
   }
 </style>
 </head>
@@ -304,21 +320,42 @@
 <div id="toast"></div>
 
 <header>
-  <div class="dot"></div>
-  <h1>Options Ratio Screener</h1>
-  <span class="subtitle">IBKR Real-Time · Ratio Bull Spreads</span>
+  <div style="display:flex;align-items:center;gap:8px">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <path d="M2 12 L5 7 L8 9 L11 4 L14 6" stroke="#58a6ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <h1>Options Ratio Screener</h1>
+  </div>
+
+  <div class="header-right">
+    <!-- Auto-refresh toggle -->
+    <div class="refresh-ctrl" id="refresh-ctrl" style="display:none">
+      <span>Auto-refresh</span>
+      <label class="refresh-toggle">
+        <input type="checkbox" id="auto-refresh-toggle" checked>
+        <div class="toggle-track"></div>
+        <div class="toggle-thumb"></div>
+      </label>
+      <span id="refresh-countdown">60s</span>
+    </div>
+
+    <!-- Market status -->
+    <div class="market-pill closed" id="market-pill">
+      <div class="pip"></div>
+      <span id="market-label">—</span>
+    </div>
+    <span class="market-time" id="market-time">—</span>
+  </div>
 </header>
 
 <div class="layout">
-  <!-- ── Sidebar ── -->
+  <!-- Sidebar -->
   <aside>
     <div>
       <div class="section-label">Underlying</div>
       <label>Symbol</label>
-      <input id="symbol" type="text" value="SPY" placeholder="SPY" style="text-transform:uppercase">
-
-      <label style="margin-top:10px">
-        Expiration
+      <input id="symbol" type="text" value="SPY" style="text-transform:uppercase">
+      <label style="margin-top:10px">Expiration
         <span class="help" title="Load available expirations after entering a symbol">?</span>
       </label>
       <select id="expiration"></select>
@@ -347,21 +384,17 @@
           </select>
         </div>
       </div>
-      <label style="margin-top:10px">Min funded % <span class="help" title="Short premium must cover at least X% of long ask">?</span></label>
+      <label style="margin-top:10px">Min funded %
+        <span class="help" title="Short premium must cover at least X% of long ask">?</span>
+      </label>
       <input id="min-funding" type="number" value="0" min="0" max="200" step="5">
     </div>
 
     <div>
       <div class="section-label">Strike range (optional)</div>
       <div class="row2">
-        <div>
-          <label>Low</label>
-          <input id="strike-low" type="number" placeholder="e.g. 450">
-        </div>
-        <div>
-          <label>High</label>
-          <input id="strike-high" type="number" placeholder="e.g. 520">
-        </div>
+        <div><label>Low</label><input id="strike-low" type="number" placeholder="e.g. 450"></div>
+        <div><label>High</label><input id="strike-high" type="number" placeholder="e.g. 520"></div>
       </div>
     </div>
 
@@ -369,7 +402,7 @@
       <div class="section-label">Display</div>
       <label>Top results</label>
       <input id="top" type="number" value="30" min="5" max="100" step="5">
-      <label style="margin-top:10px; display:flex; align-items:center; gap:6px; cursor:pointer">
+      <label style="margin-top:10px;display:flex;align-items:center;gap:6px;cursor:pointer">
         <input id="no-otm" type="checkbox" style="width:auto">
         Fetch all strikes (no OTM filter)
       </label>
@@ -380,44 +413,54 @@
       <button class="btn-secondary" id="btn-clear">Clear</button>
     </div>
 
-    <!-- Connection info -->
-    <div style="margin-top:auto; padding-top:16px; border-top: 1px solid var(--border)">
-      <div class="section-label">Connection</div>
-      <div style="font-size:11px; color:var(--text-muted); line-height:1.7">
-        Host: <span style="color:var(--text)" id="conn-host">—</span><br>
-        Port: <span style="color:var(--text)" id="conn-port">—</span>
+    <div style="margin-top:auto;padding-top:14px;border-top:1px solid var(--border)">
+      <div class="section-label">IBKR Connection</div>
+      <div style="font-size:11px;color:var(--text-muted);line-height:1.8">
+        Host: <span style="color:var(--text)" id="conn-host">127.0.0.1</span><br>
+        Port: <span style="color:var(--text)" id="conn-port">7497</span>
       </div>
     </div>
   </aside>
 
-  <!-- ── Main ── -->
+  <!-- Main -->
   <main id="main-area">
     <div class="state-box" id="idle-state">
       <div class="icon">📊</div>
-      <p>Enter a symbol, load expirations, set your filters and click <strong>Screen</strong>.</p>
+      <p>Enter a symbol, load expirations, configure filters and click <strong>Screen</strong>.<br>
+      <span style="font-size:11px">When the market is open, results auto-refresh every 60 seconds.</span></p>
     </div>
   </main>
 </div>
 
 <script>
-// ── Config ──────────────────────────────────────────────────────────────────
-const symbolInput    = document.getElementById("symbol");
-const expirationSel  = document.getElementById("expiration");
-const ratioSel       = document.getElementById("ratio");
-const gapSel         = document.getElementById("gap");
-const minFundingInp  = document.getElementById("min-funding");
-const strikeLowInp   = document.getElementById("strike-low");
-const strikeHighInp  = document.getElementById("strike-high");
-const topInp         = document.getElementById("top");
-const noOtmChk       = document.getElementById("no-otm");
-const btnScreen      = document.getElementById("btn-screen");
-const btnClear       = document.getElementById("btn-clear");
-const btnLoadExp     = document.getElementById("btn-load-exp");
-const mainArea       = document.getElementById("main-area");
-const progressBar    = document.getElementById("progress-bar");
-const toast          = document.getElementById("toast");
+// ── DOM refs ──────────────────────────────────────────────────────────────────
+const symbolInput   = document.getElementById("symbol");
+const expirationSel = document.getElementById("expiration");
+const btnScreen     = document.getElementById("btn-screen");
+const btnClear      = document.getElementById("btn-clear");
+const btnLoadExp    = document.getElementById("btn-load-exp");
+const mainArea      = document.getElementById("main-area");
+const progressBar   = document.getElementById("progress-bar");
+const toast         = document.getElementById("toast");
+const marketPill    = document.getElementById("market-pill");
+const marketLabel   = document.getElementById("market-label");
+const marketTime    = document.getElementById("market-time");
+const refreshCtrl   = document.getElementById("refresh-ctrl");
+const autoToggle    = document.getElementById("auto-refresh-toggle");
+const countdown     = document.getElementById("refresh-countdown");
 
-// ── Toast ────────────────────────────────────────────────────────────────────
+// ── State ─────────────────────────────────────────────────────────────────────
+let marketOpen     = false;
+let lastData       = null;
+let sortCol        = "score";
+let sortAsc        = false;
+let refreshTimer   = null;   // setInterval handle
+let countdownSecs  = 60;
+let screenInFlight = false;
+
+const REFRESH_INTERVAL = 60; // seconds
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
 let toastTimer;
 function showToast(msg, isErr = false) {
   toast.textContent = msg;
@@ -426,7 +469,7 @@ function showToast(msg, isErr = false) {
   toastTimer = setTimeout(() => toast.className = "", 3500);
 }
 
-// ── Progress bar ─────────────────────────────────────────────────────────────
+// ── Progress bar ──────────────────────────────────────────────────────────────
 let progTimer;
 function startProgress() {
   progressBar.style.width = "0";
@@ -442,20 +485,94 @@ function endProgress() {
   setTimeout(() => progressBar.style.width = "0", 400);
 }
 
+// ── Market status polling (every 15s) ─────────────────────────────────────────
+async function pollMarketStatus() {
+  try {
+    const r    = await fetch("/api/market-status");
+    const data = await r.json();
+    updateMarketUI(data);
+  } catch (_) {}
+}
+
+function updateMarketUI(data) {
+  const wasOpen = marketOpen;
+  marketOpen = data.open;
+  const session = data.session;  // "open" | "pre-market" | "after-hours" | "closed"
+
+  // Pill
+  marketPill.className = "market-pill " + (
+    session === "open"       ? "open"   :
+    session === "pre-market" ? "pre"    : "closed"
+  );
+  const labels = {
+    "open":        "Market Open",
+    "pre-market":  "Pre-Market",
+    "after-hours": "After Hours",
+    "closed":      "Market Closed",
+  };
+  marketLabel.textContent = labels[session] || session;
+  marketTime.textContent  = data.time_et + " ET";
+
+  // If market just opened and we have results, start auto-refresh
+  if (!wasOpen && marketOpen && lastData) startAutoRefresh();
+  // If market just closed, stop auto-refresh
+  if (wasOpen && !marketOpen) stopAutoRefresh();
+}
+
+setInterval(pollMarketStatus, 15_000);
+pollMarketStatus();
+
+// ── Auto-refresh ──────────────────────────────────────────────────────────────
+function startAutoRefresh() {
+  stopAutoRefresh();
+  if (!marketOpen || !autoToggle.checked || !lastData) return;
+
+  refreshCtrl.style.display = "flex";
+  countdownSecs = REFRESH_INTERVAL;
+  countdown.textContent = countdownSecs + "s";
+
+  refreshTimer = setInterval(() => {
+    countdownSecs--;
+    countdown.textContent = countdownSecs + "s";
+    if (countdownSecs <= 0) {
+      countdownSecs = REFRESH_INTERVAL;
+      if (!screenInFlight) runScreen(true); // silent refresh
+    }
+  }, 1000);
+}
+
+function stopAutoRefresh() {
+  clearInterval(refreshTimer);
+  refreshTimer = null;
+  refreshCtrl.style.display = "none";
+}
+
+function resetCountdown() {
+  countdownSecs = REFRESH_INTERVAL;
+  if (countdown) countdown.textContent = countdownSecs + "s";
+}
+
+autoToggle.addEventListener("change", () => {
+  if (autoToggle.checked && marketOpen && lastData) startAutoRefresh();
+  else stopAutoRefresh();
+});
+
 // ── Load expirations ──────────────────────────────────────────────────────────
-btnLoadExp.addEventListener("click", async () => {
+btnLoadExp.addEventListener("click", loadExpirations);
+
+async function loadExpirations() {
   const sym = symbolInput.value.trim().toUpperCase();
   if (!sym) { showToast("Enter a symbol first", true); return; }
-  btnLoadExp.disabled = true;
+  btnLoadExp.disabled   = true;
   btnLoadExp.textContent = "Loading…";
   try {
-    const r = await fetch(`/api/expirations?symbol=${encodeURIComponent(sym)}`);
+    const r    = await fetch(`/api/expirations?symbol=${encodeURIComponent(sym)}`);
     const data = await r.json();
     if (!r.ok) { showToast(data.error || "Failed to load expirations", true); return; }
     expirationSel.innerHTML = "";
     data.expirations.forEach(e => {
       const opt = document.createElement("option");
-      opt.value = e.value;
+      opt.value       = e.value;
       opt.textContent = e.label;
       expirationSel.appendChild(opt);
     });
@@ -463,105 +580,113 @@ btnLoadExp.addEventListener("click", async () => {
   } catch(e) {
     showToast("Network error: " + e.message, true);
   } finally {
-    btnLoadExp.disabled = false;
+    btnLoadExp.disabled    = false;
     btnLoadExp.textContent = "Load expirations ↺";
   }
-});
+}
 
 // ── Screen ────────────────────────────────────────────────────────────────────
-btnScreen.addEventListener("click", runScreen);
-document.addEventListener("keydown", e => { if (e.key === "Enter" && e.ctrlKey) runScreen(); });
+btnScreen.addEventListener("click", () => runScreen(false));
+btnClear.addEventListener("click", () => { stopAutoRefresh(); setMainIdle(); lastData = null; });
+document.addEventListener("keydown", e => { if (e.key === "Enter" && e.ctrlKey) runScreen(false); });
 
-async function runScreen() {
+async function runScreen(silent = false) {
   const sym = symbolInput.value.trim().toUpperCase();
   const exp = expirationSel.value;
   if (!sym)  { showToast("Enter a symbol", true); return; }
   if (!exp)  { showToast("Load and select an expiration", true); return; }
 
-  btnScreen.disabled = true;
-  btnScreen.textContent = "Fetching…";
-  startProgress();
-  setMainState("loading", `Connecting to IBKR and fetching ${sym} chain…`);
+  screenInFlight = true;
+  btnScreen.disabled     = true;
+  btnScreen.textContent  = "Fetching…";
+  if (!silent) startProgress();
+
+  if (!silent) setMainState("loading", `Connecting to IBKR and fetching ${sym} chain…`);
 
   const body = {
-    symbol: sym,
-    expiration: exp,
-    ratio: +ratioSel.value,
-    gap: +gapSel.value,
-    min_funding: +minFundingInp.value || 0,
-    top: +topInp.value || 30,
-    no_otm_filter: noOtmChk.checked,
-    strike_low: strikeLowInp.value ? +strikeLowInp.value : null,
-    strike_high: strikeHighInp.value ? +strikeHighInp.value : null,
+    symbol:       sym,
+    expiration:   exp,
+    ratio:        +document.getElementById("ratio").value,
+    gap:          +document.getElementById("gap").value,
+    min_funding:  +document.getElementById("min-funding").value || 0,
+    top:          +document.getElementById("top").value || 30,
+    no_otm_filter: document.getElementById("no-otm").checked,
+    strike_low:   document.getElementById("strike-low").value  ? +document.getElementById("strike-low").value  : null,
+    strike_high:  document.getElementById("strike-high").value ? +document.getElementById("strike-high").value : null,
+    force_fresh:  false,
   };
 
   try {
-    const r  = await fetch("/api/screen", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    const r    = await fetch("/api/screen", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body) });
     const data = await r.json();
 
-    if (data.error) {
-      setMainState("error", data.error);
+    if (data.error && !data.candidates) {
+      if (!silent) setMainState("error", data.error);
       showToast(data.error, true);
       return;
     }
-    renderResults(data);
+
+    lastData = data;
+    renderResults(data, silent);
+
+    // Start auto-refresh if market is open
+    if (data.market?.open) startAutoRefresh();
+    else stopAutoRefresh();
+
+    resetCountdown();
   } catch(e) {
-    setMainState("error", e.message);
+    if (!silent) setMainState("error", e.message);
     showToast("Error: " + e.message, true);
   } finally {
     endProgress();
-    btnScreen.disabled = false;
+    btnScreen.disabled    = false;
     btnScreen.textContent = "▶ Screen";
+    screenInFlight        = false;
   }
 }
 
-// ── Clear ────────────────────────────────────────────────────────────────────
-btnClear.addEventListener("click", () => {
-  setMainState("idle");
-});
-
 // ── State helpers ─────────────────────────────────────────────────────────────
+function setMainIdle() {
+  mainArea.innerHTML = `
+    <div class="state-box">
+      <div class="icon">📊</div>
+      <p>Enter a symbol, load expirations, configure filters and click <strong>Screen</strong>.<br>
+      <span style="font-size:11px">When the market is open, results auto-refresh every 60 seconds.</span></p>
+    </div>`;
+}
 function setMainState(state, msg = "") {
-  if (state === "idle") {
-    mainArea.innerHTML = `
-      <div class="state-box" id="idle-state">
-        <div class="icon">📊</div>
-        <p>Enter a symbol, load expirations, set your filters and click <strong>Screen</strong>.</p>
-      </div>`;
-  } else if (state === "loading") {
-    mainArea.innerHTML = `
-      <div class="state-box">
-        <div class="spinner"></div>
-        <p>${msg}</p>
-      </div>`;
-  } else if (state === "error") {
-    mainArea.innerHTML = `
-      <div class="state-box">
-        <div class="icon">⚠️</div>
-        <p class="error-msg">${escHtml(msg)}</p>
-      </div>`;
+  if (state === "idle")    { setMainIdle(); return; }
+  if (state === "loading") {
+    mainArea.innerHTML = `<div class="state-box"><div class="spinner"></div><p>${escHtml(msg)}</p></div>`;
+    return;
+  }
+  if (state === "error") {
+    mainArea.innerHTML = `<div class="state-box"><div class="icon">⚠️</div><p class="error-msg">${escHtml(msg)}</p></div>`;
   }
 }
 
 // ── Render results ────────────────────────────────────────────────────────────
-let sortCol = "score", sortAsc = false;
-let lastData = null;
-
-function renderResults(data) {
-  lastData = data;
+function renderResults(data, silent) {
   const expFmt = data.expiration
     ? `${data.expiration.slice(0,4)}-${data.expiration.slice(4,6)}-${data.expiration.slice(6)}`
     : data.expiration;
+
+  // If silent refresh, keep the existing DOM and just swap table + stats + chart
+  if (silent && document.getElementById("results-body")) {
+    updateStats(data, expFmt);
+    updateStaleBanner(data);
+    renderBody(data.candidates);
+    drawChart(data.chain, data.candidates);
+    return;
+  }
+
   const upStr = data.underlying_price != null ? `$${data.underlying_price.toFixed(2)}` : "N/A";
 
   mainArea.innerHTML = `
+    <div class="stale-banner" id="stale-banner"></div>
     <div class="stats" id="stats-row"></div>
     <div class="chart-area">
-      <div class="chart-title">Call chain · bid/ask by strike</div>
+      <div class="chart-title">Call chain · bid / ask / mid by strike</div>
       <canvas id="chain-chart"></canvas>
     </div>
     <div class="table-wrap">
@@ -569,7 +694,7 @@ function renderResults(data) {
         <thead>
           <tr>
             <th>#</th>
-            <th data-col="long_strike" class="sorted">Long K</th>
+            <th data-col="long_strike">Long K</th>
             <th data-col="short_strike">Short K</th>
             <th data-col="ratio">Ratio</th>
             <th data-col="gap">Gap</th>
@@ -590,40 +715,79 @@ function renderResults(data) {
       Score = −(net_debit / spread_width) · higher is better · green net = credit · upper BE only for ratio &gt; 1:1
     </div>`;
 
-  // Stats
-  const statsRow = document.getElementById("stats-row");
-  [
-    ["Symbol", data.symbol],
-    ["Expiration", expFmt],
-    ["Underlying", upStr],
-    ["Strikes fetched", data.strikes_fetched],
-    ["Valid quotes", data.valid_quotes],
-    ["Candidates", data.candidates.length],
-  ].forEach(([label, val]) => {
-    const d = document.createElement("div");
-    d.className = "stat";
-    d.innerHTML = `<span class="stat-label">${label}</span><span class="stat-value">${val}</span>`;
-    statsRow.appendChild(d);
-  });
-
   // Sortable headers
   sortCol = "score"; sortAsc = false;
   document.querySelectorAll("thead th[data-col]").forEach(th => {
     th.addEventListener("click", () => {
       const col = th.dataset.col;
-      if (sortCol === col) sortAsc = !sortAsc;
-      else { sortCol = col; sortAsc = false; }
-      document.querySelectorAll("thead th").forEach(t => {
-        t.classList.remove("sorted", "asc");
-      });
+      sortAsc = (sortCol === col) ? !sortAsc : false;
+      sortCol = col;
+      document.querySelectorAll("thead th").forEach(t => t.classList.remove("sorted","asc"));
       th.classList.add("sorted");
       if (sortAsc) th.classList.add("asc");
       renderBody(lastData.candidates);
     });
   });
 
+  updateStats(data, expFmt);
+  updateStaleBanner(data);
   renderBody(data.candidates);
   drawChart(data.chain, data.candidates);
+}
+
+function updateStats(data, expFmt) {
+  const statsRow = document.getElementById("stats-row");
+  if (!statsRow) return;
+  const upStr = data.underlying_price != null ? `$${data.underlying_price.toFixed(2)}` : "N/A";
+  statsRow.innerHTML = "";
+  [
+    ["Symbol",         data.symbol],
+    ["Expiration",     expFmt],
+    ["Underlying",     upStr],
+    ["Strikes",        data.strikes_fetched],
+    ["Valid quotes",   data.valid_quotes],
+    ["Candidates",     data.candidates.length],
+    ["Updated",        data.fetched_at ? data.fetched_at.replace(" ET","") : "—"],
+  ].forEach(([lbl, val]) => {
+    const d = document.createElement("div");
+    d.className = "stat";
+    d.innerHTML = `<span class="stat-label">${lbl}</span><span class="stat-value">${val}</span>`;
+    statsRow.appendChild(d);
+  });
+}
+
+function updateStaleBanner(data) {
+  const banner = document.getElementById("stale-banner");
+  if (!banner) return;
+  if (data.from_cache) {
+    const msg = data.warning || `Market closed — showing last data from <strong>${data.fetched_at}</strong>`;
+    banner.innerHTML = `⚠ ${msg}
+      <button onclick="forceRefresh()">Refresh now</button>`;
+    banner.classList.add("show");
+  } else {
+    banner.classList.remove("show");
+  }
+}
+
+function forceRefresh() {
+  const body = buildBody(true);
+  if (!body) return;
+  runScreen(false);
+}
+
+function buildBody(forceFresh = false) {
+  return {
+    symbol:       symbolInput.value.trim().toUpperCase(),
+    expiration:   expirationSel.value,
+    ratio:        +document.getElementById("ratio").value,
+    gap:          +document.getElementById("gap").value,
+    min_funding:  +document.getElementById("min-funding").value || 0,
+    top:          +document.getElementById("top").value || 30,
+    no_otm_filter: document.getElementById("no-otm").checked,
+    strike_low:   document.getElementById("strike-low").value ? +document.getElementById("strike-low").value : null,
+    strike_high:  document.getElementById("strike-high").value ? +document.getElementById("strike-high").value : null,
+    force_fresh:  forceFresh,
+  };
 }
 
 function renderBody(candidates) {
@@ -637,6 +801,7 @@ function renderBody(candidates) {
   });
 
   const tbody = document.getElementById("results-body");
+  if (!tbody) return;
   tbody.innerHTML = "";
   sorted.forEach((c, idx) => {
     const tr = document.createElement("tr");
@@ -663,114 +828,100 @@ function drawChart(chain, candidates) {
   const canvas = document.getElementById("chain-chart");
   if (!canvas || !chain || chain.length === 0) return;
   const ctx = canvas.getContext("2d");
-
-  // Responsive sizing
-  const dpr = window.devicePixelRatio || 1;
-  const rect = canvas.parentElement.getBoundingClientRect();
-  canvas.width  = rect.width  * dpr;
-  canvas.height = 110 * dpr;
+  const dpr  = window.devicePixelRatio || 1;
+  const rect  = canvas.parentElement.getBoundingClientRect();
+  canvas.width  = rect.width * dpr;
+  canvas.height = 100 * dpr;
   canvas.style.width  = rect.width + "px";
-  canvas.style.height = "110px";
+  canvas.style.height = "100px";
   ctx.scale(dpr, dpr);
 
-  const W = rect.width, H = 110;
-  const PAD = { top: 10, right: 20, bottom: 24, left: 40 };
-  const cW = W - PAD.left - PAD.right;
-  const cH = H - PAD.top - PAD.bottom;
+  const W = rect.width, H = 100;
+  const PAD = { top: 8, right: 60, bottom: 22, left: 38 };
+  const cW  = W - PAD.left - PAD.right;
+  const cH  = H - PAD.top  - PAD.bottom;
 
-  const strikes  = chain.map(d => d.strike);
-  const asks     = chain.map(d => d.ask);
-  const bids     = chain.map(d => d.bid);
+  const strikes = chain.map(d => d.strike);
+  const asks    = chain.map(d => d.ask).filter(v => v != null);
+  const maxP    = asks.length ? Math.max(...asks) : 1;
+  const minS    = Math.min(...strikes), maxS = Math.max(...strikes);
+  const xScale  = s => PAD.left + (s - minS) / (maxS - minS || 1) * cW;
+  const yScale  = v => PAD.top + cH - (v / maxP) * cH;
 
-  const minS = Math.min(...strikes), maxS = Math.max(...strikes);
-  const maxP = Math.max(...asks.filter(v => v != null));
-  const xScale = s => PAD.left + (s - minS) / (maxS - minS || 1) * cW;
-  const yScale = v => PAD.top + cH - (v / (maxP || 1)) * cH;
-
-  // Grid lines
-  ctx.strokeStyle = "#1e242b";
-  ctx.lineWidth = 1;
-  for (let i = 0; i <= 4; i++) {
-    const y = PAD.top + (cH / 4) * i;
+  // Grid
+  ctx.strokeStyle = "#1e242b"; ctx.lineWidth = 1;
+  for (let i = 0; i <= 3; i++) {
+    const y = PAD.top + (cH / 3) * i;
     ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(W - PAD.right, y); ctx.stroke();
-    const val = maxP * (1 - i / 4);
-    ctx.fillStyle = "#4d5561";
-    ctx.font = "9px monospace";
-    ctx.textAlign = "right";
+    const val = maxP * (1 - i / 3);
+    ctx.fillStyle = "#4d5561"; ctx.font = "9px monospace"; ctx.textAlign = "right";
     ctx.fillText(val.toFixed(2), PAD.left - 3, y + 3);
   }
 
-  // Highlight long strikes of top candidates
-  const topLong = new Set((candidates || []).slice(0, 5).map(c => c.long_strike));
+  // Highlight top-5 strikes
+  const topLong  = new Set((candidates || []).slice(0, 5).map(c => c.long_strike));
   const topShort = new Set((candidates || []).slice(0, 5).map(c => c.short_strike));
-
   chain.forEach(d => {
     const x = xScale(d.strike);
     if (topLong.has(d.strike)) {
-      ctx.strokeStyle = "rgba(88,166,255,0.3)";
-      ctx.lineWidth = 1;
+      ctx.strokeStyle = "rgba(88,166,255,0.25)"; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(x, PAD.top); ctx.lineTo(x, H - PAD.bottom); ctx.stroke();
     }
     if (topShort.has(d.strike)) {
-      ctx.strokeStyle = "rgba(248,81,73,0.25)";
-      ctx.lineWidth = 1;
+      ctx.strokeStyle = "rgba(248,81,73,0.2)"; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(x, PAD.top); ctx.lineTo(x, H - PAD.bottom); ctx.stroke();
     }
   });
 
   // Ask line
-  ctx.strokeStyle = "#f8514950";
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
+  ctx.strokeStyle = "#f8514966"; ctx.lineWidth = 1.5; ctx.beginPath();
   chain.forEach((d, i) => {
     if (d.ask == null) return;
-    const x = xScale(d.strike), y = yScale(d.ask);
-    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-  });
-  ctx.stroke();
+    i === 0 ? ctx.moveTo(xScale(d.strike), yScale(d.ask)) : ctx.lineTo(xScale(d.strike), yScale(d.ask));
+  }); ctx.stroke();
 
   // Bid line
-  ctx.strokeStyle = "#3fb95080";
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
+  ctx.strokeStyle = "#3fb95066"; ctx.lineWidth = 1.5; ctx.beginPath();
   chain.forEach((d, i) => {
     if (d.bid == null) return;
-    const x = xScale(d.strike), y = yScale(d.bid);
-    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-  });
-  ctx.stroke();
+    i === 0 ? ctx.moveTo(xScale(d.strike), yScale(d.bid)) : ctx.lineTo(xScale(d.strike), yScale(d.bid));
+  }); ctx.stroke();
 
   // Mid dots
   ctx.fillStyle = "#58a6ff";
   chain.forEach(d => {
     if (d.mid == null) return;
-    ctx.beginPath();
-    ctx.arc(xScale(d.strike), yScale(d.mid), 2, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.beginPath(); ctx.arc(xScale(d.strike), yScale(d.mid), 1.8, 0, Math.PI * 2); ctx.fill();
   });
 
-  // X-axis strike labels (sample ~6)
+  // X-axis labels
   const step = Math.max(1, Math.floor(strikes.length / 6));
-  ctx.fillStyle = "#4d5561";
-  ctx.font = "9px monospace";
-  ctx.textAlign = "center";
-  strikes.filter((_, i) => i % step === 0).forEach(s => {
-    ctx.fillText(s.toFixed(0), xScale(s), H - PAD.bottom + 13);
-  });
+  ctx.fillStyle = "#4d5561"; ctx.font = "9px monospace"; ctx.textAlign = "center";
+  strikes.filter((_, i) => i % step === 0).forEach(s =>
+    ctx.fillText(s.toFixed(0), xScale(s), H - PAD.bottom + 12)
+  );
 
   // Legend
-  ctx.font = "9px monospace";
-  ctx.fillStyle = "#3fb950"; ctx.textAlign = "left";
-  ctx.fillText("bid", W - PAD.right - 55, PAD.top + 9);
-  ctx.fillStyle = "#f85149";
-  ctx.fillText("ask", W - PAD.right - 30, PAD.top + 9);
-  ctx.fillStyle = "#58a6ff";
-  ctx.fillText("mid", W - PAD.right - 5 , PAD.top + 9);
+  ctx.font = "9px monospace"; ctx.textAlign = "left";
+  const lx = W - PAD.right + 4, ly = PAD.top + 10;
+  [[var("--green"),  "bid"], [var2("--red"), "ask"], ["#58a6ff", "mid"]].forEach(([c, lbl], i) => {
+    ctx.fillStyle = c; ctx.fillText("●", lx, ly + i * 13);
+    ctx.fillStyle = "#4d5561"; ctx.fillText(" " + lbl, lx + 9, ly + i * 13);
+  });
+}
+function var_(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+// inline helper since we can't use CSS vars in canvas
+function var2(name) { return var_(name); }
+function var_(n) {
+  const m = { "--green":"#3fb950", "--red":"#f85149", "--blue":"#58a6ff" };
+  return m[n] || "#888";
 }
 
 // ── Colour helpers ────────────────────────────────────────────────────────────
 function colorDebit(v) {
-  if (v < 0) return `<span class="green-bright">−${Math.abs(v).toFixed(2)}</span>`;
+  if (v < 0)  return `<span class="green-bright">−${Math.abs(v).toFixed(2)}</span>`;
   if (v === 0) return `<span class="cyan">0.00</span>`;
   return `<span class="yellow">+${v.toFixed(2)}</span>`;
 }
@@ -781,20 +932,14 @@ function colorFunding(pct) {
   return `<span class="red">${pct.toFixed(1)}%</span>`;
 }
 function colorScore(v) {
-  if (v > 0.3)  return `<span class="green-bright">${v.toFixed(4)}</span>`;
-  if (v > 0)    return `<span class="green">${v.toFixed(4)}</span>`;
-  if (v > -0.1) return `<span class="yellow">${v.toFixed(4)}</span>`;
+  if (v > 0.3)   return `<span class="green-bright">${v.toFixed(4)}</span>`;
+  if (v > 0)     return `<span class="green">${v.toFixed(4)}</span>`;
+  if (v > -0.1)  return `<span class="yellow">${v.toFixed(4)}</span>`;
   return `<span class="red">${v.toFixed(4)}</span>`;
 }
 function escHtml(s) {
   return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
 }
-
-// ── Init ──────────────────────────────────────────────────────────────────────
-// Show connection info from server env
-fetch("/api/expirations?symbol=_ping_").catch(() => {});
-document.getElementById("conn-host").textContent = location.hostname;
-document.getElementById("conn-port").textContent = "see .env";
 </script>
 </body>
 </html>
