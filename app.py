@@ -22,6 +22,8 @@ from flask import Flask, render_template, request, jsonify
 from ibkr_client import IBKRClient
 from chain_fetcher import fetch_chain, get_underlying_price
 from ratio_analyzer import analyze_bull_spreads
+import watchlist as wl
+from scanner_bot import ScannerBot
 
 load_dotenv()
 
@@ -40,6 +42,9 @@ _MARKET_CLOSE = dtime(16, 0)
 
 # In-memory cache: (symbol, expiration) -> last successful screen payload
 _result_cache: dict[tuple[str, str], dict] = {}
+
+# Scanner bot (single global instance)
+_bot = ScannerBot(ibkr_host=IBKR_HOST, ibkr_port=IBKR_PORT)
 
 
 # ---------------------------------------------------------------------------
@@ -306,6 +311,68 @@ def api_screen():
     except Exception as exc:
         logging.exception("Screener error")
         return jsonify({"error": str(exc)}), 500
+
+
+# ---------------------------------------------------------------------------
+# Watchlist routes
+# ---------------------------------------------------------------------------
+
+@app.route("/api/watchlist", methods=["GET"])
+def api_watchlist_get():
+    return jsonify({"symbols": wl.get_symbols()})
+
+
+@app.route("/api/watchlist", methods=["POST"])
+def api_watchlist_add():
+    body   = request.get_json(force=True)
+    symbol = body.get("symbol", "").upper().strip()
+    if not symbol:
+        return jsonify({"error": "symbol is required"}), 400
+    return jsonify({"symbols": wl.add_symbol(symbol)})
+
+
+@app.route("/api/watchlist/<symbol>", methods=["DELETE"])
+def api_watchlist_remove(symbol: str):
+    return jsonify({"symbols": wl.remove_symbol(symbol.upper())})
+
+
+# ---------------------------------------------------------------------------
+# Bot routes
+# ---------------------------------------------------------------------------
+
+@app.route("/api/bot/status")
+def api_bot_status():
+    return jsonify(_bot.get_status())
+
+
+@app.route("/api/bot/start", methods=["POST"])
+def api_bot_start():
+    body     = request.get_json(force=True) or {}
+    interval = int(body.get("interval_minutes", 15))
+    if not (1 <= interval <= 120):
+        return jsonify({"error": "interval_minutes must be 1-120"}), 400
+    _bot.start(interval_minutes=interval, symbols_getter=wl.get_symbols)
+    return jsonify(_bot.get_status())
+
+
+@app.route("/api/bot/stop", methods=["POST"])
+def api_bot_stop():
+    _bot.stop()
+    return jsonify(_bot.get_status())
+
+
+@app.route("/api/bot/scan-now", methods=["POST"])
+def api_bot_scan_now():
+    symbols = wl.get_symbols()
+    if not symbols:
+        return jsonify({"error": "Watchlist is empty"}), 400
+    _bot.scan_now(symbols)
+    return jsonify({"ok": True, "scanning": symbols})
+
+
+@app.route("/api/bot/results")
+def api_bot_results():
+    return jsonify(_bot.get_results())
 
 
 if __name__ == "__main__":

@@ -313,6 +313,114 @@
     background: var(--border); color: var(--text-muted); font-size: 9px;
     text-align: center; line-height: 13px; cursor: help; margin-left: 3px; vertical-align: middle;
   }
+
+  /* ── Tab nav ── */
+  .tab-nav {
+    display: flex; gap: 4px; margin-left: 20px;
+  }
+  .tab-btn {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-muted);
+    padding: 3px 12px; border-radius: 5px;
+    font-size: 12px; font-weight: 500;
+    cursor: pointer; width: auto; transition: all .15s;
+  }
+  .tab-btn:hover  { color: var(--text); border-color: var(--border); }
+  .tab-btn.active { background: var(--surface2); color: var(--text); border-color: var(--border); }
+
+  /* ── Bot view ── */
+  #bot-view {
+    display: none;
+    grid-template-columns: 260px 1fr;
+    height: calc(100vh - 48px);
+  }
+  #bot-view.active { display: grid; }
+
+  /* Bot sidebar */
+  .bot-sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 16px 14px;
+    overflow-y: auto;
+    display: flex; flex-direction: column; gap: 18px;
+  }
+
+  /* Watchlist chips */
+  .wl-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .wl-chip {
+    display: flex; align-items: center; gap: 5px;
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 4px; padding: 3px 8px; font-size: 12px;
+  }
+  .wl-chip button {
+    background: none; border: none; color: var(--text-muted);
+    cursor: pointer; width: auto; padding: 0; font-size: 12px; line-height: 1;
+  }
+  .wl-chip button:hover { color: var(--red); }
+  .wl-add-row { display: flex; gap: 6px; margin-top: 6px; }
+  .wl-add-row input { flex: 1; }
+  .wl-add-row button { width: auto; padding: 6px 12px; font-size: 12px; }
+
+  /* Bot status */
+  .bot-status {
+    font-size: 11px; color: var(--text-muted); line-height: 1.8;
+  }
+  .bot-status span { color: var(--text); }
+  .status-dot {
+    display: inline-block; width: 7px; height: 7px;
+    border-radius: 50%; background: var(--text-muted); margin-right: 5px;
+  }
+  .status-dot.running { background: var(--green); animation: pulse 1.5s infinite; }
+
+  /* Bot interval input */
+  .interval-row { display: flex; align-items: center; gap: 8px; }
+  .interval-row input { width: 60px; }
+  .interval-row span  { font-size: 11px; color: var(--text-muted); }
+
+  /* Bot results main */
+  .bot-main { overflow-y: auto; padding: 16px 20px; }
+  .bot-results-header {
+    display: flex; align-items: center; gap: 12px; margin-bottom: 14px;
+  }
+  .bot-results-header h2 { font-size: 13px; font-weight: 600; }
+
+  /* Symbol cards */
+  .sym-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
+  .sym-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px; overflow: hidden;
+  }
+  .sym-card-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px;
+    background: var(--surface2); border-bottom: 1px solid var(--border);
+  }
+  .sym-ticker { font-size: 14px; font-weight: 700; color: var(--blue); }
+  .sym-price  { font-size: 13px; font-weight: 600; }
+  .sym-meta   { font-size: 10px; color: var(--text-muted); margin-left: auto; }
+  .sym-card-body { padding: 10px 14px; }
+  .sym-error  { font-size: 11px; color: var(--red); padding: 10px 14px; }
+  .sym-scanning { font-size: 11px; color: var(--text-muted); padding: 10px 14px; display: flex; align-items: center; gap: 8px; }
+
+  /* Mini candidate list */
+  .cand-list { width: 100%; border-collapse: collapse; font-size: 11px; }
+  .cand-list th {
+    text-align: right; padding: 3px 6px; color: var(--text-muted);
+    font-size: 10px; font-weight: 600; text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+  }
+  .cand-list th:first-child { text-align: left; }
+  .cand-list td { text-align: right; padding: 4px 6px; font-variant-numeric: tabular-nums; }
+  .cand-list td:first-child { text-align: left; color: var(--blue); }
+  .cand-list tr:not(:last-child) td { border-bottom: 1px solid #1a2028; }
+
+  /* Btn scan now */
+  .btn-scan { background: #0f2a1a; color: var(--green); border: 1px solid #2ea043; }
+  .btn-scan:hover { background: #1a3a25; }
+  .btn-stop { background: #2a1010; color: var(--red); border: 1px solid #8b1a1a; }
+  .btn-stop:hover { background: #3a1515; }
 </style>
 </head>
 <body>
@@ -325,6 +433,10 @@
       <path d="M2 12 L5 7 L8 9 L11 4 L14 6" stroke="#58a6ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
     </svg>
     <h1>Options Ratio Screener</h1>
+  </div>
+  <div class="tab-nav">
+    <button class="tab-btn active" id="tab-manual" onclick="switchTab('manual')">Manual</button>
+    <button class="tab-btn" id="tab-bot" onclick="switchTab('bot')">Bot Scanner</button>
   </div>
 
   <div class="header-right">
@@ -430,6 +542,66 @@
       <span style="font-size:11px">When the market is open, results auto-refresh every 60 seconds.</span></p>
     </div>
   </main>
+</div>
+
+<!-- ── Bot Scanner view ──────────────────────────────────────────────── -->
+<div id="bot-view">
+  <!-- Bot sidebar -->
+  <aside class="bot-sidebar">
+    <div>
+      <div class="section-label">Watchlist</div>
+      <div class="wl-chips" id="wl-chips"></div>
+      <div class="wl-add-row" style="margin-top:10px">
+        <input id="wl-input" type="text" placeholder="Add symbol…" style="text-transform:uppercase" maxlength="10">
+        <button class="btn-primary" onclick="wlAdd()">+</button>
+      </div>
+    </div>
+
+    <div>
+      <div class="section-label">Scan interval</div>
+      <div class="interval-row">
+        <input id="bot-interval" type="number" value="15" min="1" max="120" step="5">
+        <span>minutes</span>
+      </div>
+    </div>
+
+    <div class="btn-group">
+      <button class="btn-primary" id="btn-bot-start" onclick="botStart()">▶ Start bot</button>
+      <button class="btn-stop"    id="btn-bot-stop"  onclick="botStop()" style="display:none">■ Stop bot</button>
+      <button class="btn-scan"    id="btn-scan-now"  onclick="botScanNow()">⟳ Scan now</button>
+    </div>
+
+    <div>
+      <div class="section-label">Status</div>
+      <div class="bot-status" id="bot-status-block">
+        <span class="status-dot" id="bot-dot"></span>
+        <span id="bot-running-label">Stopped</span><br>
+        Last scan: <span id="bot-last-scan">—</span><br>
+        Next scan: <span id="bot-next-scan">—</span>
+      </div>
+    </div>
+
+    <div style="margin-top:auto;padding-top:14px;border-top:1px solid var(--border)">
+      <div class="section-label">Expiration target</div>
+      <div style="font-size:11px;color:var(--text-muted);line-height:1.8">
+        Auto: closest to <span style="color:var(--text)">30-45 DTE</span><br>
+        Type: <span style="color:var(--text)">Call ratio spread</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Bot results -->
+  <div class="bot-main">
+    <div class="bot-results-header">
+      <h2>Scan Results</h2>
+      <span id="bot-scan-ts" style="font-size:11px;color:var(--text-muted)"></span>
+    </div>
+    <div class="sym-grid" id="sym-grid">
+      <div style="color:var(--text-muted);font-size:12px">
+        Add symbols to the watchlist and click <strong>Scan now</strong> or start the bot.
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -930,6 +1102,240 @@ function colorScore(v) {
 }
 function escHtml(s) {
   return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
+// ── Tab switching ─────────────────────────────────────────────────────────────
+function switchTab(tab) {
+  const layout   = document.querySelector(".layout");
+  const botView  = document.getElementById("bot-view");
+  const tabManual = document.getElementById("tab-manual");
+  const tabBot    = document.getElementById("tab-bot");
+
+  if (tab === "bot") {
+    layout.style.display  = "none";
+    botView.classList.add("active");
+    tabManual.classList.remove("active");
+    tabBot.classList.add("active");
+    loadWatchlist();
+    pollBotStatus();
+  } else {
+    layout.style.display  = "";
+    botView.classList.remove("active");
+    tabManual.classList.add("active");
+    tabBot.classList.remove("active");
+  }
+}
+
+// ── Watchlist ─────────────────────────────────────────────────────────────────
+async function loadWatchlist() {
+  try {
+    const r = await fetch("/api/watchlist");
+    const d = await r.json();
+    renderWatchlistChips(d.symbols || []);
+  } catch(_) {}
+}
+
+function renderWatchlistChips(symbols) {
+  const container = document.getElementById("wl-chips");
+  if (!container) return;
+  container.innerHTML = "";
+  symbols.forEach(sym => {
+    const chip = document.createElement("div");
+    chip.className = "wl-chip";
+    chip.innerHTML = `<span>${escHtml(sym)}</span><button onclick="wlRemove('${escHtml(sym)}')" title="Remove">✕</button>`;
+    container.appendChild(chip);
+  });
+}
+
+async function wlAdd() {
+  const input = document.getElementById("wl-input");
+  const sym   = input.value.trim().toUpperCase();
+  if (!sym) return;
+  input.value = "";
+  try {
+    const r = await fetch("/api/watchlist", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({symbol: sym}),
+    });
+    const d = await r.json();
+    renderWatchlistChips(d.symbols || []);
+    showToast(`${sym} added to watchlist`);
+  } catch(e) { showToast("Error: " + e.message, true); }
+}
+
+async function wlRemove(sym) {
+  try {
+    const r = await fetch(`/api/watchlist/${encodeURIComponent(sym)}`, { method: "DELETE" });
+    const d = await r.json();
+    renderWatchlistChips(d.symbols || []);
+  } catch(e) { showToast("Error: " + e.message, true); }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  const wlInput = document.getElementById("wl-input");
+  if (wlInput) wlInput.addEventListener("keydown", e => { if (e.key === "Enter") wlAdd(); });
+});
+
+// ── Bot controls ──────────────────────────────────────────────────────────────
+let botPollTimer = null;
+
+async function botStart() {
+  const interval = parseInt(document.getElementById("bot-interval").value) || 15;
+  try {
+    const r = await fetch("/api/bot/start", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({interval_minutes: interval}),
+    });
+    const d = await r.json();
+    updateBotStatusUI(d);
+    showToast(`Bot started — scanning every ${interval} min`);
+    startBotPoll();
+  } catch(e) { showToast("Error: " + e.message, true); }
+}
+
+async function botStop() {
+  try {
+    const r = await fetch("/api/bot/stop", { method: "POST" });
+    const d = await r.json();
+    updateBotStatusUI(d);
+    showToast("Bot stopped");
+  } catch(e) { showToast("Error: " + e.message, true); }
+}
+
+async function botScanNow() {
+  const btn = document.getElementById("btn-scan-now");
+  btn.disabled = true;
+  btn.textContent = "Scanning…";
+  try {
+    const r = await fetch("/api/bot/scan-now", { method: "POST" });
+    const d = await r.json();
+    if (d.error) { showToast(d.error, true); return; }
+    showToast(`Scanning ${d.scanning.join(", ")}…`);
+    // Poll for results after a short delay
+    setTimeout(fetchBotResults, 3000);
+    setTimeout(fetchBotResults, 8000);
+    setTimeout(fetchBotResults, 15000);
+    setTimeout(fetchBotResults, 30000);
+  } catch(e) { showToast("Error: " + e.message, true); }
+  finally {
+    setTimeout(() => { btn.disabled = false; btn.textContent = "⟳ Scan now"; }, 3000);
+  }
+}
+
+async function pollBotStatus() {
+  try {
+    const r = await fetch("/api/bot/status");
+    const d = await r.json();
+    updateBotStatusUI(d);
+  } catch(_) {}
+}
+
+function updateBotStatusUI(status) {
+  const dot     = document.getElementById("bot-dot");
+  const label   = document.getElementById("bot-running-label");
+  const btnStart = document.getElementById("btn-bot-start");
+  const btnStop  = document.getElementById("btn-bot-stop");
+  if (!dot) return;
+
+  if (status.running) {
+    dot.classList.add("running");
+    label.textContent = `Running (every ${status.interval_minutes} min)`;
+    btnStart.style.display = "none";
+    btnStop.style.display  = "";
+  } else {
+    dot.classList.remove("running");
+    label.textContent = "Stopped";
+    btnStart.style.display = "";
+    btnStop.style.display  = "none";
+  }
+  document.getElementById("bot-last-scan").textContent = status.last_scan || "—";
+  document.getElementById("bot-next-scan").textContent = status.running ? (status.next_scan || "—") : "—";
+}
+
+function startBotPoll() {
+  if (botPollTimer) return;
+  botPollTimer = setInterval(async () => {
+    await pollBotStatus();
+    await fetchBotResults();
+  }, 20_000);
+}
+
+// ── Bot results rendering ─────────────────────────────────────────────────────
+async function fetchBotResults() {
+  try {
+    const r = await fetch("/api/bot/results");
+    const d = await r.json();
+    renderBotResults(d);
+  } catch(_) {}
+}
+
+function renderBotResults(results) {
+  const grid = document.getElementById("sym-grid");
+  if (!grid) return;
+  const symbols = Object.keys(results);
+  if (symbols.length === 0) {
+    grid.innerHTML = `<div style="color:var(--text-muted);font-size:12px">No results yet — click <strong>Scan now</strong>.</div>`;
+    return;
+  }
+
+  // Update timestamp
+  const ts = document.getElementById("bot-scan-ts");
+  const anyTs = Object.values(results).find(r => r.scanned_at)?.scanned_at;
+  if (ts && anyTs) ts.textContent = `Last scan: ${anyTs}`;
+
+  grid.innerHTML = "";
+  symbols.sort().forEach(sym => {
+    const r = results[sym];
+    const card = document.createElement("div");
+    card.className = "sym-card";
+    card.innerHTML = buildSymCard(sym, r);
+    grid.appendChild(card);
+  });
+}
+
+function buildSymCard(sym, r) {
+  const priceStr = r.underlying_price != null ? `$${r.underlying_price.toFixed(2)}` : "";
+  const metaStr  = r.expiration
+    ? `${r.expiration.slice(0,4)}-${r.expiration.slice(4,6)}-${r.expiration.slice(6)} · ${r.dte}d`
+    : "";
+
+  let body = "";
+  if (r.error && (!r.candidates || r.candidates.length === 0)) {
+    body = `<div class="sym-error">⚠ ${escHtml(r.error)}</div>`;
+  } else if (!r.candidates || r.candidates.length === 0) {
+    body = `<div class="sym-scanning"><div class="spinner" style="width:14px;height:14px;border-width:2px"></div> Fetching…</div>`;
+  } else {
+    body = `<div class="sym-card-body">${buildCandTable(r.candidates)}</div>`;
+  }
+
+  return `
+    <div class="sym-card-header">
+      <span class="sym-ticker">${escHtml(sym)}</span>
+      <span class="sym-price">${priceStr}</span>
+      <span class="sym-meta">${escHtml(metaStr)}</span>
+    </div>
+    ${body}`;
+}
+
+function buildCandTable(candidates) {
+  if (!candidates.length) return '<span style="font-size:11px;color:var(--text-muted)">No candidates</span>';
+  const rows = candidates.slice(0, 5).map(c => `
+    <tr>
+      <td>${c.long_strike}/${c.short_strike}</td>
+      <td><span class="ratio-badge">${escHtml(c.ratio)}</span></td>
+      <td>${colorDebit(c.net_debit)}</td>
+      <td>${colorFunding(c.funding_pct)}</td>
+      <td>${colorScore(c.score)}</td>
+    </tr>`).join("");
+  return `
+    <table class="cand-list">
+      <thead><tr>
+        <th>K long/short</th><th>Ratio</th><th>Net $/sh</th><th>Funded</th><th>Score</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
 }
 </script>
 </body>
