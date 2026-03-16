@@ -421,6 +421,93 @@
   .btn-scan:hover { background: #1a3a25; }
   .btn-stop { background: #2a1010; color: var(--red); border: 1px solid #8b1a1a; }
   .btn-stop:hover { background: #3a1515; }
+
+  /* ── Confirm-trade modal ── */
+  .modal-overlay {
+    display: none; position: fixed; inset: 0; z-index: 200;
+    background: rgba(0,0,0,.65); backdrop-filter: blur(2px);
+    align-items: center; justify-content: center;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 22px 24px; width: 380px; max-width: 95vw;
+  }
+  .modal h3 { font-size: 13px; font-weight: 700; margin-bottom: 16px; }
+  .modal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+  .modal-field label { display: block; font-size: 10px; color: var(--text-muted); margin-bottom: 4px; }
+  .modal-field input, .modal-field textarea {
+    width: 100%; background: var(--bg); border: 1px solid var(--border);
+    color: var(--text); border-radius: 5px; padding: 6px 8px; font-size: 12px;
+  }
+  .modal-field input:focus, .modal-field textarea:focus {
+    outline: none; border-color: var(--accent);
+  }
+  .modal-field.span2 { grid-column: 1 / -1; }
+  .modal-preview {
+    grid-column: 1 / -1;
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 6px; padding: 9px 12px; font-size: 11px; margin-top: 2px;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px;
+  }
+  .modal-preview .mp-label { color: var(--text-muted); }
+  .modal-preview .mp-val   { text-align: right; font-variant-numeric: tabular-nums; }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+  .btn-cancel { background: transparent; border: 1px solid var(--border); color: var(--text-muted); }
+  .btn-cancel:hover { border-color: var(--text-muted); color: var(--text); }
+  .btn-log    { background: var(--accent); color: #fff; border: none; }
+  .btn-log:hover { background: #1f6feb; filter: brightness(1.1); }
+
+  /* ── Log button in results rows ── */
+  .btn-log-row {
+    font-size: 10px; padding: 2px 7px; background: #0c1f3a;
+    color: var(--blue); border: 1px solid #1f4080; border-radius: 4px;
+    cursor: pointer; white-space: nowrap; width: auto;
+  }
+  .btn-log-row:hover { background: #1a3a6a; }
+
+  /* ── Positions view ── */
+  #positions-view {
+    display: none; flex-direction: column;
+    height: calc(100vh - 48px); overflow: hidden;
+  }
+  #positions-view.active { display: flex; }
+  .pos-toolbar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 20px; border-bottom: 1px solid var(--border);
+    background: var(--surface); flex-shrink: 0;
+  }
+  .pos-toolbar h2 { font-size: 13px; font-weight: 600; flex: 1; }
+  .pos-table-wrap { flex: 1; overflow: auto; padding: 16px 20px; }
+  .pos-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .pos-table th {
+    position: sticky; top: 0; background: var(--surface2);
+    text-align: right; padding: 6px 8px; font-size: 10px;
+    font-weight: 600; text-transform: uppercase; color: var(--text-muted);
+    border-bottom: 1px solid var(--border); white-space: nowrap;
+  }
+  .pos-table th:first-child { text-align: left; }
+  .pos-table td {
+    text-align: right; padding: 6px 8px;
+    font-variant-numeric: tabular-nums; border-bottom: 1px solid #1a2028;
+    white-space: nowrap;
+  }
+  .pos-table td:first-child { text-align: left; color: var(--blue); font-weight: 600; }
+  .pos-table tr:hover td { background: var(--surface2); }
+  .alert-pill {
+    display: inline-block; border-radius: 4px; padding: 1px 7px;
+    font-size: 10px; font-weight: 600; text-transform: uppercase;
+  }
+  .alert-ok      { background: #0f2a1a; color: var(--green); }
+  .alert-warning { background: #2a1f00; color: var(--yellow); }
+  .alert-alert   { background: #2a1010; color: var(--red); }
+  .alert-unknown { background: var(--surface2); color: var(--text-muted); }
+  .btn-close-pos {
+    font-size: 10px; padding: 2px 8px; background: #2a1010;
+    color: var(--red); border: 1px solid #5a2020; border-radius: 4px;
+    cursor: pointer; width: auto;
+  }
+  .btn-close-pos:hover { background: #3a1515; }
 </style>
 </head>
 <body>
@@ -435,8 +522,9 @@
     <h1>Options Ratio Screener</h1>
   </div>
   <div class="tab-nav">
-    <button class="tab-btn active" id="tab-manual" onclick="switchTab('manual')">Manual</button>
-    <button class="tab-btn" id="tab-bot" onclick="switchTab('bot')">Bot Scanner</button>
+    <button class="tab-btn active" id="tab-manual"     onclick="switchTab('manual')">Manual</button>
+    <button class="tab-btn"        id="tab-bot"        onclick="switchTab('bot')">Bot Scanner</button>
+    <button class="tab-btn"        id="tab-positions"  onclick="switchTab('positions')">Positions</button>
   </div>
 
   <div class="header-right">
@@ -600,6 +688,54 @@
       <div style="color:var(--text-muted);font-size:12px">
         Add symbols to the watchlist and click <strong>Scan now</strong> or start the bot.
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Positions tracking view ── -->
+<div id="positions-view">
+  <div class="pos-toolbar">
+    <h2>Open Positions</h2>
+    <button class="btn-scan" onclick="loadPositions()">⟳ Refresh</button>
+  </div>
+  <div class="pos-table-wrap">
+    <div id="pos-content">
+      <div style="color:var(--text-muted);font-size:12px">Loading positions…</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Confirm trade modal ── -->
+<div class="modal-overlay" id="modal-overlay" onclick="closeModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <h3 id="modal-title">Log Trade</h3>
+    <div class="modal-grid">
+      <div class="modal-field">
+        <label>Long ask (actual fill)</label>
+        <input type="number" id="m-long-ask" step="0.01" min="0" oninput="updateModalPreview()">
+      </div>
+      <div class="modal-field">
+        <label>Short bid (actual fill)</label>
+        <input type="number" id="m-short-bid" step="0.01" min="0" oninput="updateModalPreview()">
+      </div>
+      <div class="modal-field">
+        <label>Lots (# of long contracts)</label>
+        <input type="number" id="m-lots" value="1" min="1" step="1" oninput="updateModalPreview()">
+      </div>
+      <div class="modal-field">
+        <label>Note (opcional)</label>
+        <input type="text" id="m-note" placeholder="e.g. earnings play">
+      </div>
+      <div class="modal-preview" id="modal-preview">
+        <span class="mp-label">Gross cr/sh</span><span class="mp-val" id="mp-gross">—</span>
+        <span class="mp-label">Net credit ($)</span><span class="mp-val" id="mp-net">—</span>
+        <span class="mp-label">Upper B/E</span><span class="mp-val" id="mp-ube">—</span>
+        <span class="mp-label">Max profit ($)</span><span class="mp-val" id="mp-max">—</span>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+      <button class="btn-log"    onclick="submitPosition()">Log Trade</button>
     </div>
   </div>
 </div>
@@ -878,6 +1014,7 @@ function renderResults(data, silent) {
             <th data-col="upper_be">Upper BE</th>
             <th data-col="max_profit">Max profit $</th>
             <th data-col="score" class="sorted">Score</th>
+            <th></th>
           </tr>
         </thead>
         <tbody id="results-body"></tbody>
@@ -990,7 +1127,8 @@ function renderBody(candidates) {
       <td style="color:var(--text-muted)">${c.lower_be.toFixed(2)}</td>
       <td style="color:var(--text-muted)">${c.upper_be}</td>
       <td style="color:var(--purple)">${c.max_profit >= 0 ? "+" : ""}${c.max_profit.toFixed(0)}</td>
-      <td>${colorScore(c.score)}</td>`;
+      <td>${colorScore(c.score)}</td>
+      <td><button class="btn-log-row" onclick="openConfirmModal(${idx})">Log</button></td>`;
     tbody.appendChild(tr);
   });
 }
@@ -1106,23 +1244,30 @@ function escHtml(s) {
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
 function switchTab(tab) {
-  const layout   = document.querySelector(".layout");
-  const botView  = document.getElementById("bot-view");
-  const tabManual = document.getElementById("tab-manual");
-  const tabBot    = document.getElementById("tab-bot");
+  const layout        = document.querySelector(".layout");
+  const botView       = document.getElementById("bot-view");
+  const posView       = document.getElementById("positions-view");
+  const tabManual     = document.getElementById("tab-manual");
+  const tabBot        = document.getElementById("tab-bot");
+  const tabPositions  = document.getElementById("tab-positions");
+
+  layout.style.display = "none";
+  botView.classList.remove("active");
+  posView.classList.remove("active");
+  [tabManual, tabBot, tabPositions].forEach(b => b.classList.remove("active"));
 
   if (tab === "bot") {
-    layout.style.display  = "none";
     botView.classList.add("active");
-    tabManual.classList.remove("active");
     tabBot.classList.add("active");
     loadWatchlist();
     pollBotStatus();
+  } else if (tab === "positions") {
+    posView.classList.add("active");
+    tabPositions.classList.add("active");
+    loadPositions();
   } else {
-    layout.style.display  = "";
-    botView.classList.remove("active");
+    layout.style.display = "";
     tabManual.classList.add("active");
-    tabBot.classList.remove("active");
   }
 }
 
@@ -1336,6 +1481,160 @@ function buildCandTable(candidates) {
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
+}
+
+// ── Confirm-trade modal ───────────────────────────────────────────────────────
+let _modalCtx = null;  // { symbol, expiration, n_short, long_strike, short_strike }
+
+function openConfirmModal(idx) {
+  if (!lastData || !lastData.candidates) return;
+  const c = lastData.candidates[idx];
+  if (!c) return;
+  _modalCtx = {
+    symbol:       lastData.symbol,
+    expiration:   lastData.expiration,
+    n_short:      c.n_short,
+    long_strike:  c.long_strike,
+    short_strike: c.short_strike,
+  };
+  document.getElementById("modal-title").textContent =
+    `Log Trade — ${lastData.symbol} ${c.long_strike}/${c.short_strike} (${c.ratio})`;
+  document.getElementById("m-long-ask").value  = c.long_ask.toFixed(2);
+  document.getElementById("m-short-bid").value = c.short_bid.toFixed(2);
+  document.getElementById("m-lots").value      = 1;
+  document.getElementById("m-note").value      = "";
+  updateModalPreview();
+  document.getElementById("modal-overlay").classList.add("open");
+  document.getElementById("m-long-ask").focus();
+}
+
+function closeModal(e) {
+  if (e && e.target !== document.getElementById("modal-overlay")) return;
+  document.getElementById("modal-overlay").classList.remove("open");
+}
+
+function _ibkrCommission(contracts) {
+  return Math.max(1.00, contracts * 0.65);
+}
+
+function updateModalPreview() {
+  if (!_modalCtx) return;
+  const longAsk  = parseFloat(document.getElementById("m-long-ask").value)  || 0;
+  const shortBid = parseFloat(document.getElementById("m-short-bid").value) || 0;
+  const lots     = Math.max(1, parseInt(document.getElementById("m-lots").value) || 1);
+  const n        = _modalCtx.n_short;
+
+  const grossCr = shortBid * n - longAsk;
+  const comm    = _ibkrCommission(lots) + _ibkrCommission(lots * n);
+  const netCr   = grossCr * 100 * lots - comm;
+  const ube     = (n * _modalCtx.short_strike - _modalCtx.long_strike + grossCr) / (n - 1);
+  const maxP    = (_modalCtx.short_strike - _modalCtx.long_strike + grossCr) * 100 * lots;
+
+  const fmtNum = (v, dec=2) => isFinite(v) ? v.toFixed(dec) : "—";
+  const sign   = v => (v >= 0 ? "+" : "") + fmtNum(v);
+
+  document.getElementById("mp-gross").textContent = sign(grossCr);
+  document.getElementById("mp-net").textContent   = sign(netCr);
+  document.getElementById("mp-ube").textContent   = fmtNum(ube);
+  document.getElementById("mp-max").textContent   = sign(maxP, 0);
+
+  // Colour net credit
+  const el = document.getElementById("mp-net");
+  el.style.color = netCr >= 0 ? "var(--green)" : "var(--red)";
+}
+
+async function submitPosition() {
+  if (!_modalCtx) return;
+  const body = {
+    symbol:       _modalCtx.symbol,
+    expiration:   _modalCtx.expiration,
+    long_strike:  _modalCtx.long_strike,
+    short_strike: _modalCtx.short_strike,
+    n_short:      _modalCtx.n_short,
+    lots:         parseInt(document.getElementById("m-lots").value) || 1,
+    long_ask:     parseFloat(document.getElementById("m-long-ask").value),
+    short_bid:    parseFloat(document.getElementById("m-short-bid").value),
+    note:         document.getElementById("m-note").value.trim(),
+  };
+  try {
+    const r = await fetch("/api/positions", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) { const d = await r.json(); throw new Error(d.error || r.statusText); }
+    document.getElementById("modal-overlay").classList.remove("open");
+    showToast(`Trade logged: ${body.symbol} ${body.long_strike}/${body.short_strike}`);
+  } catch (err) {
+    showToast("Error: " + err.message, true);
+  }
+}
+
+// ── Positions tracking tab ────────────────────────────────────────────────────
+async function loadPositions() {
+  const el = document.getElementById("pos-content");
+  el.innerHTML = '<div style="color:var(--text-muted);font-size:12px">Fetching positions…</div>';
+  try {
+    const r = await fetch("/api/positions/alerts");
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    renderPositionsTable(d.alerts || []);
+  } catch (err) {
+    el.innerHTML = `<div style="color:var(--red);font-size:12px">Error: ${escHtml(err.message)}</div>`;
+  }
+}
+
+function renderPositionsTable(alerts) {
+  const el = document.getElementById("pos-content");
+  if (!alerts.length) {
+    el.innerHTML = '<div style="color:var(--text-muted);font-size:12px">No open positions.</div>';
+    return;
+  }
+  const alertBadge = lvl => `<span class="alert-pill alert-${lvl}">${lvl}</span>`;
+  const fmtExp = e => e ? `${e.slice(0,4)}-${e.slice(4,6)}-${e.slice(6)}` : "—";
+  const rows = alerts.map(p => `
+    <tr>
+      <td>${escHtml(p.symbol)}</td>
+      <td>${fmtExp(p.expiration)}</td>
+      <td style="color:var(--text)">${p.long_strike}</td>
+      <td style="color:var(--text)">${p.short_strike}</td>
+      <td><span class="ratio-badge">1:${p.n_short}</span></td>
+      <td>${p.lots}</td>
+      <td>${(+p.long_ask).toFixed(2)}</td>
+      <td>${(+p.short_bid).toFixed(2)}</td>
+      <td style="color:${p.entry_net_credit>=0?'var(--green)':'var(--red)'}">${p.entry_net_credit>=0?'+':''}${(+p.entry_net_credit).toFixed(2)}</td>
+      <td>${(+p.upper_BE).toFixed(2)}</td>
+      <td style="color:var(--purple)">${p.max_profit_per_lot>=0?'+':''}${(+p.max_profit_per_lot).toFixed(0)}</td>
+      <td>${p.dte != null ? p.dte + 'd' : '—'}</td>
+      <td>${p.current_price != null ? '$'+p.current_price.toFixed(2) : '—'}</td>
+      <td>${alertBadge(p.alert_level || 'unknown')}</td>
+      <td style="color:var(--text-muted);font-size:11px;max-width:120px;overflow:hidden;text-overflow:ellipsis">${escHtml(p.note||'')}</td>
+      <td><button class="btn-close-pos" onclick="closePosition('${escHtml(p.id)}')">Close</button></td>
+    </tr>`).join("");
+
+  el.innerHTML = `
+    <table class="pos-table">
+      <thead><tr>
+        <th style="text-align:left">Symbol</th>
+        <th>Exp</th><th>Long K</th><th>Short K</th><th>Ratio</th><th>Lots</th>
+        <th>L.ask</th><th>S.bid</th><th>Net cr $</th>
+        <th>Upper B/E</th><th>Max P $</th><th>DTE</th>
+        <th>Current $</th><th>Alert</th><th>Note</th><th></th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+async function closePosition(id) {
+  if (!confirm("Mark this position as closed?")) return;
+  try {
+    const r = await fetch(`/api/positions/${id}`, { method: "DELETE" });
+    if (!r.ok) { const d = await r.json(); throw new Error(d.error || r.statusText); }
+    showToast("Position closed.");
+    loadPositions();
+  } catch (err) {
+    showToast("Error: " + err.message, true);
+  }
 }
 </script>
 </body>
