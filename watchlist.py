@@ -6,7 +6,8 @@ import json
 import os
 import threading
 
-_WATCHLIST_FILE = os.path.join(os.path.dirname(__file__), "watchlist.json")
+_DATA_DIR = os.getenv("DATA_DIR", os.path.dirname(os.path.abspath(__file__)))
+_WATCHLIST_FILE = os.path.join(_DATA_DIR, "watchlist.json")
 _DEFAULT_SYMBOLS = ["DLO", "NU", "MARA", "RIOT", "PLTR", "SOFI", "HOOD"]
 
 _lock = threading.Lock()

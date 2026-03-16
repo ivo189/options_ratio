@@ -1,0 +1,64 @@
+# Options Ratio Screener — Docker Compose
+#
+# Runs IB Gateway headlessly + the screener dashboard.
+# No TWS installation needed on your laptop.
+#
+# Quick start:
+#   cp .env.example .env
+#   # edit .env with your IBKR credentials
+#   docker compose up -d
+#   open http://<server-ip>:8080
+#
+# First-time login:
+#   IB Gateway will prompt for 2FA via IB Key on your phone.
+#   If it doesn't connect automatically, use VNC:
+#     Mac/Linux:  open vnc://<server-ip>:5900  (password: in .env VNC_PASSWORD)
+#     Windows:    use RealVNC Viewer
+
+services:
+  ib-gateway:
+    image: ghcr.io/gnzsnz/ib-gateway:stable
+    restart: always
+    environment:
+      TWS_USERID:           ${IBKR_USER}
+      TWS_PASSWORD:         ${IBKR_PASS}
+      TRADING_MODE:         ${TRADING_MODE:-paper}
+      # Accept API connections from any host on the docker network
+      TWS_ACCEPT_INCOMING:  "yes"
+      # Read-only: the screener never places orders
+      READ_ONLY_API:        "yes"
+      VNC_SERVER_PASSWORD:  ${VNC_PASSWORD:-changeme}
+    ports:
+      - "4001:4001"   # live trading gateway
+      - "4002:4002"   # paper trading gateway
+      - "5900:5900"   # VNC (for manual 2FA approval if needed)
+    volumes:
+      - ib-gateway-jts:/root/Jts   # persists IBKR settings & session
+    healthcheck:
+      # Gateway is ready when it starts listening on the API port
+      test: ["CMD-SHELL", "ss -tln | grep -q :${IBKR_PORT:-4002} || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 60s   # give gateway time to log in
+
+  screener:
+    build: .
+    restart: always
+    depends_on:
+      ib-gateway:
+        condition: service_healthy
+    environment:
+      IBKR_HOST:      ib-gateway
+      IBKR_PORT:      ${IBKR_PORT:-4002}
+      IBKR_CLIENT_ID: ${IBKR_CLIENT_ID:-1}
+      DASHBOARD_PORT: ${DASHBOARD_PORT:-8080}
+      DATA_DIR:       /data              # watchlist.json stored here
+    ports:
+      - "${DASHBOARD_PORT:-8080}:8080"
+    volumes:
+      - screener-data:/data              # persist watchlist across restarts & rebuilds
+
+volumes:
+  ib-gateway-jts:
+  screener-data:
