@@ -549,11 +549,26 @@ def api_positions_add():
 
 @app.route("/api/positions/<position_id>", methods=["DELETE"])
 def api_positions_close(position_id: str):
-    """Mark a position as closed (does not delete it — keeps history)."""
-    found = pos.close_position(position_id)
+    """Mark a position as closed or expired (keeps history)."""
+    body              = request.get_json(silent=True) or {}
+    close_reason      = body.get("close_reason", "closed")
+    close_long_bid    = body.get("close_long_bid")
+    close_short_ask   = body.get("close_short_ask")
+    close_underlying  = body.get("close_underlying")
+
+    if close_reason not in ("closed", "expired"):
+        return jsonify({"error": "close_reason must be 'closed' or 'expired'"}), 400
+
+    found = pos.close_position(
+        position_id,
+        close_reason=close_reason,
+        close_long_bid=float(close_long_bid) if close_long_bid is not None else None,
+        close_short_ask=float(close_short_ask) if close_short_ask is not None else None,
+        close_underlying=float(close_underlying) if close_underlying is not None else None,
+    )
     if not found:
         return jsonify({"error": f"Position {position_id} not found"}), 404
-    return jsonify({"ok": True, "id": position_id, "status": "closed"})
+    return jsonify({"ok": True, "id": position_id, "status": close_reason})
 
 
 # ---------------------------------------------------------------------------
@@ -573,40 +588,60 @@ def api_positions_alerts():
       alert   — price > upper_BE  (past break-even, losing at expiry — roll urgently)
       unknown — could not retrieve current price
     """
-    active = pos.get_positions(status="active")
+    status_filter = request.args.get("status", "active")
+    active = pos.get_positions(status=status_filter if status_filter != "all" else None)
     if not active:
         return jsonify({"alerts": []})
 
-    # Deduplicate symbols so we open one IBKR connection and batch price fetches
-    symbols = list({p.symbol for p in active})
+    # Only fetch live prices for active positions
+    active_only = [p for p in active if p.status == "active"]
+    symbols = list({p.symbol for p in active_only})
     prices: dict[str, float] = {}
 
-    try:
-        client = _connect()
+    if symbols:
         try:
-            from concurrent.futures import ThreadPoolExecutor, as_completed
-            with ThreadPoolExecutor(max_workers=min(len(symbols), 5)) as pool:
-                futs = {pool.submit(get_underlying_price, client, sym): sym
-                        for sym in symbols}
-                for fut in as_completed(futs):
-                    sym = futs[fut]
-                    try:
-                        prices[sym] = fut.result()
-                    except Exception:
-                        prices[sym] = float("nan")
-        finally:
-            client.disconnect_clean()
-    except ConnectionError as exc:
-        return jsonify({"error": str(exc)}), 503
+            client = _connect()
+            try:
+                from concurrent.futures import ThreadPoolExecutor, as_completed
+                with ThreadPoolExecutor(max_workers=min(len(symbols), 5)) as pool:
+                    futs = {pool.submit(get_underlying_price, client, sym): sym
+                            for sym in symbols}
+                    for fut in as_completed(futs):
+                        sym = futs[fut]
+                        try:
+                            prices[sym] = fut.result()
+                        except Exception:
+                            prices[sym] = float("nan")
+            finally:
+                client.disconnect_clean()
+        except ConnectionError as exc:
+            return jsonify({"error": str(exc)}), 503
+
+    _SCENARIOS = [0.75, 0.80, 0.85, 0.90, 0.95, 1.05, 1.10, 1.15, 1.20, 1.25]
 
     alerts = []
     for p in active:
-        current = prices.get(p.symbol, float("nan"))
-        level   = p.alert_level(current)
-        d       = p.to_dict()
-        d["current_price"] = None if math.isnan(current) else round(current, 2)
-        d["alert_level"]   = level
-        d["dte"]           = p.dte()
+        d = p.to_dict()
+        d["dte"] = p.dte()
+
+        if p.status == "active":
+            current = prices.get(p.symbol, float("nan"))
+            cp      = None if math.isnan(current) else round(current, 2)
+            d["current_price"] = cp
+            d["alert_level"]   = p.alert_level(current)
+            if cp is not None:
+                d["scenarios"]   = {f"{m:.2f}x": p.pnl_at_expiry(cp * m) for m in _SCENARIOS}
+                d["pnl_current"] = p.pnl_at_expiry(cp)
+            else:
+                d["scenarios"]   = {}
+                d["pnl_current"] = None
+        else:
+            # closed or expired — no live price needed
+            d["current_price"] = None
+            d["alert_level"]   = "closed"
+            d["scenarios"]     = {}
+            d["pnl_current"]   = None
+
         alerts.append(d)
 
     # Sort: alert first, then warning, then ok

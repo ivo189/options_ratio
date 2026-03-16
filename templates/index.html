@@ -508,6 +508,17 @@
     cursor: pointer; width: auto;
   }
   .btn-close-pos:hover { background: #3a1515; }
+
+  /* P&L scenario grid */
+  .pnl-pos  { color: var(--green); }
+  .pnl-neg  { color: var(--red); }
+  .pnl-zero { color: var(--text-muted); }
+  .pnl-actual {
+    background: var(--surface2); font-weight: 700;
+    border-left: 2px solid var(--accent); border-right: 2px solid var(--accent);
+  }
+  .pos-table th.pnl-hdr { color: var(--accent); }
+  .result-final { color: var(--purple); font-weight: 600; }
 </style>
 </head>
 <body>
@@ -695,12 +706,65 @@
 <!-- ── Positions tracking view ── -->
 <div id="positions-view">
   <div class="pos-toolbar">
-    <h2>Open Positions</h2>
-    <button class="btn-scan" onclick="loadPositions()">⟳ Refresh</button>
+    <h2>Posiciones</h2>
+    <button class="tab-btn pos-filter-btn active" data-f="active"   onclick="setPosFiler('active')">Activas</button>
+    <button class="tab-btn pos-filter-btn"        data-f="closed"   onclick="setPosFiler('closed')">Cerradas</button>
+    <button class="tab-btn pos-filter-btn"        data-f="expired"  onclick="setPosFiler('expired')">Vencidas</button>
+    <button class="tab-btn pos-filter-btn"        data-f="all"      onclick="setPosFiler('all')">Todas</button>
+    <button class="btn-scan" style="margin-left:auto" onclick="loadPositions()">⟳ Refresh</button>
   </div>
   <div class="pos-table-wrap">
     <div id="pos-content">
       <div style="color:var(--text-muted);font-size:12px">Loading positions…</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Close / Expire position modal ── -->
+<div class="modal-overlay" id="close-modal-overlay" onclick="closeCloseModal(event)">
+  <div class="modal" onclick="event.stopPropagation()" style="width:420px">
+    <h3 id="close-modal-title">Cerrar posición</h3>
+    <div style="margin-bottom:12px">
+      <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:6px">¿Cómo se cerró?</label>
+      <div style="display:flex;gap:16px">
+        <label style="font-size:12px;display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="radio" name="close-reason" value="closed" checked onchange="onCloseReasonChange()"> Cerrada manualmente
+        </label>
+        <label style="font-size:12px;display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="radio" name="close-reason" value="expired" onchange="onCloseReasonChange()"> Expiró
+        </label>
+      </div>
+    </div>
+
+    <!-- manual close fields -->
+    <div id="close-manual-fields" class="modal-grid">
+      <div class="modal-field">
+        <label>Long bid (precio recibido al vender)</label>
+        <input type="number" id="cm-long-bid" step="0.01" min="0" oninput="updateClosePreview()">
+      </div>
+      <div class="modal-field">
+        <label>Short ask (precio pagado para recomprar)</label>
+        <input type="number" id="cm-short-ask" step="0.01" min="0" oninput="updateClosePreview()">
+      </div>
+    </div>
+
+    <!-- expired fields -->
+    <div id="close-expired-fields" style="display:none" class="modal-grid">
+      <div class="modal-field span2">
+        <label>Precio del subyacente al vencimiento</label>
+        <input type="number" id="cm-underlying" step="0.01" min="0" oninput="updateClosePreview()">
+      </div>
+    </div>
+
+    <!-- result preview -->
+    <div class="modal-preview" id="close-preview" style="margin-top:10px">
+      <span class="mp-label">Resultado neto</span><span class="mp-val" id="cp-result">—</span>
+      <span class="mp-label"></span><span class="mp-val" style="font-size:9px;color:var(--text-muted)" id="cp-note"></span>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeCloseModal()">Cancelar</button>
+      <button class="btn-log" id="btn-confirm-close" onclick="confirmClose()">Confirmar cierre</button>
     </div>
   </div>
 </div>
@@ -1571,11 +1635,13 @@ async function submitPosition() {
 }
 
 // ── Positions tracking tab ────────────────────────────────────────────────────
+let _posStatusFilter = "active";
+
 async function loadPositions() {
   const el = document.getElementById("pos-content");
-  el.innerHTML = '<div style="color:var(--text-muted);font-size:12px">Fetching positions…</div>';
+  el.innerHTML = '<div style="color:var(--text-muted);font-size:12px">Obteniendo posiciones…</div>';
   try {
-    const r = await fetch("/api/positions/alerts");
+    const r = await fetch(`/api/positions/alerts?status=${_posStatusFilter}`);
     const d = await r.json();
     if (d.error) throw new Error(d.error);
     renderPositionsTable(d.alerts || []);
@@ -1584,16 +1650,59 @@ async function loadPositions() {
   }
 }
 
+function setPosFiler(f) {
+  _posStatusFilter = f;
+  document.querySelectorAll(".pos-filter-btn").forEach(b => {
+    b.classList.toggle("active", b.dataset.f === f);
+  });
+  loadPositions();
+}
+
+const _SCENARIO_KEYS = ["0.75x","0.80x","0.85x","0.90x","0.95x","1.05x","1.10x","1.15x","1.20x","1.25x"];
+
+function _pnlCell(v, extra="") {
+  if (v == null) return `<td class="pnl-zero"${extra}>—</td>`;
+  const cls = v > 0.5 ? "pnl-pos" : v < -0.5 ? "pnl-neg" : "pnl-zero";
+  const sign = v >= 0 ? "+" : "";
+  return `<td class="${cls}"${extra}>${sign}${v.toFixed(1)}</td>`;
+}
+
 function renderPositionsTable(alerts) {
   const el = document.getElementById("pos-content");
   if (!alerts.length) {
-    el.innerHTML = '<div style="color:var(--text-muted);font-size:12px">No open positions.</div>';
+    el.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:12px 0">Sin posiciones.</div>';
     return;
   }
-  const alertBadge = lvl => `<span class="alert-pill alert-${lvl}">${lvl}</span>`;
+
+  const alertBadge = lvl => {
+    if (lvl === "closed" || lvl === "expired") return `<span class="alert-pill" style="background:var(--surface2);color:var(--text-muted)">${lvl}</span>`;
+    return `<span class="alert-pill alert-${lvl}">${lvl}</span>`;
+  };
   const fmtExp = e => e ? `${e.slice(0,4)}-${e.slice(4,6)}-${e.slice(6)}` : "—";
-  const rows = alerts.map(p => `
-    <tr>
+  const fmtMoney = v => v != null ? `${v>=0?'+':''}${(+v).toFixed(2)}` : "—";
+  const moneyStyle = v => v == null ? "" : v >= 0 ? "color:var(--green)" : "color:var(--red)";
+
+  const scenHdrs = _SCENARIO_KEYS.map(k => `<th>${k}</th>`).join("");
+
+  const _PRE  = ["0.75x","0.80x","0.85x","0.90x","0.95x"];
+  const _POST = ["1.05x","1.10x","1.15x","1.20x","1.25x"];
+
+  const rows = alerts.map(p => {
+    const sc = p.scenarios || {};
+    const preCells  = _PRE.map(k  => _pnlCell(sc[k]  ?? null)).join("");
+    const postCells = _POST.map(k => _pnlCell(sc[k]  ?? null)).join("");
+    const actualCell = _pnlCell(p.pnl_current, ' class="pnl-actual"');
+
+    const isActive = p.status === "active";
+    const closeBtn = isActive
+      ? `<button class="btn-close-pos" onclick="openCloseModal('${escHtml(p.id)}','${escHtml(p.symbol)}',${p.n_short})">Cerrar</button>`
+      : "";
+
+    const resultCell = p.result_net != null
+      ? `<td class="result-final" style="${moneyStyle(p.result_net)}">${fmtMoney(p.result_net)}</td>`
+      : `<td style="color:var(--text-muted)">—</td>`;
+
+    return `<tr>
       <td>${escHtml(p.symbol)}</td>
       <td>${fmtExp(p.expiration)}</td>
       <td style="color:var(--text)">${p.long_strike}</td>
@@ -1602,35 +1711,110 @@ function renderPositionsTable(alerts) {
       <td>${p.lots}</td>
       <td>${(+p.long_ask).toFixed(2)}</td>
       <td>${(+p.short_bid).toFixed(2)}</td>
-      <td style="color:${p.entry_net_credit>=0?'var(--green)':'var(--red)'}">${p.entry_net_credit>=0?'+':''}${(+p.entry_net_credit).toFixed(2)}</td>
-      <td>${(+p.upper_BE).toFixed(2)}</td>
+      <td style="${moneyStyle(p.entry_net_credit)}">${fmtMoney(p.entry_net_credit)}</td>
+      <td>${p.upper_BE != null ? (+p.upper_BE).toFixed(2) : '∞'}</td>
       <td style="color:var(--purple)">${p.max_profit_per_lot>=0?'+':''}${(+p.max_profit_per_lot).toFixed(0)}</td>
-      <td>${p.dte != null ? p.dte + 'd' : '—'}</td>
+      <td>${p.dte != null ? p.dte+'d' : '—'}</td>
       <td>${p.current_price != null ? '$'+p.current_price.toFixed(2) : '—'}</td>
-      <td>${alertBadge(p.alert_level || 'unknown')}</td>
-      <td style="color:var(--text-muted);font-size:11px;max-width:120px;overflow:hidden;text-overflow:ellipsis">${escHtml(p.note||'')}</td>
-      <td><button class="btn-close-pos" onclick="closePosition('${escHtml(p.id)}')">Close</button></td>
-    </tr>`).join("");
+      ${preCells}${actualCell}${postCells}
+      ${resultCell}
+      <td>${alertBadge(p.alert_level||'unknown')}</td>
+      <td style="color:var(--text-muted);font-size:11px;max-width:100px;overflow:hidden;text-overflow:ellipsis">${escHtml(p.note||'')}</td>
+      <td>${closeBtn}</td>
+    </tr>`;
+  }).join("");
 
   el.innerHTML = `
     <table class="pos-table">
       <thead><tr>
-        <th style="text-align:left">Symbol</th>
-        <th>Exp</th><th>Long K</th><th>Short K</th><th>Ratio</th><th>Lots</th>
-        <th>L.ask</th><th>S.bid</th><th>Net cr $</th>
-        <th>Upper B/E</th><th>Max P $</th><th>DTE</th>
-        <th>Current $</th><th>Alert</th><th>Note</th><th></th>
+        <th style="text-align:left">Ticker</th>
+        <th>Vto.</th><th>Strike L</th><th>Strike S</th><th>Ratio</th><th>Cant. L</th>
+        <th>Prima L</th><th>Prima S</th><th>Créd. Neto</th>
+        <th>Breakeven</th><th>Max Profit</th><th>Días</th>
+        <th>Precio Act.</th>
+        <th>0.75x</th><th>0.80x</th><th>0.85x</th><th>0.90x</th><th>0.95x</th>
+        <th class="pnl-hdr" style="background:var(--surface);border-left:2px solid var(--accent);border-right:2px solid var(--accent)">Actual</th>
+        <th>1.05x</th><th>1.10x</th><th>1.15x</th><th>1.20x</th><th>1.25x</th>
+        <th>Resultado</th><th>Estado</th><th>Nota</th><th></th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
 }
 
-async function closePosition(id) {
-  if (!confirm("Mark this position as closed?")) return;
+// ── Close / Expire modal ──────────────────────────────────────────────────────
+let _closingId = null;
+
+function openCloseModal(id, symbol, nShort) {
+  _closingId = id;
+  document.getElementById("close-modal-title").textContent = `Cerrar posición — ${symbol} (1:${nShort})`;
+  document.querySelector('input[name="close-reason"][value="closed"]').checked = true;
+  document.getElementById("cm-long-bid").value  = "";
+  document.getElementById("cm-short-ask").value = "";
+  document.getElementById("cm-underlying").value = "";
+  onCloseReasonChange();
+  document.getElementById("close-modal-overlay").classList.add("open");
+}
+
+function closeCloseModal(e) {
+  if (e && e.target !== document.getElementById("close-modal-overlay")) return;
+  document.getElementById("close-modal-overlay").classList.remove("open");
+}
+
+function onCloseReasonChange() {
+  const reason = document.querySelector('input[name="close-reason"]:checked').value;
+  document.getElementById("close-manual-fields").style.display  = reason === "closed"  ? "" : "none";
+  document.getElementById("close-expired-fields").style.display = reason === "expired" ? "" : "none";
+  updateClosePreview();
+}
+
+function updateClosePreview() {
+  const reason = document.querySelector('input[name="close-reason"]:checked').value;
+  const resEl  = document.getElementById("cp-result");
+  const noteEl = document.getElementById("cp-note");
+  resEl.textContent  = "—";
+  resEl.style.color  = "";
+  noteEl.textContent = "";
+
+  if (reason === "expired") {
+    const s = parseFloat(document.getElementById("cm-underlying").value);
+    if (isNaN(s)) return;
+    noteEl.textContent = "P&L calculado a vencimiento";
+    // We don't have the position's full data here — server computes result_net
+    resEl.textContent = "se calculará al confirmar";
+  } else {
+    const lb = parseFloat(document.getElementById("cm-long-bid").value)  || 0;
+    const sa = parseFloat(document.getElementById("cm-short-ask").value) || 0;
+    noteEl.textContent = "incluye comisiones IBKR estimadas";
+    resEl.textContent  = "se calculará al confirmar";
+  }
+}
+
+async function confirmClose() {
+  if (!_closingId) return;
+  const reason = document.querySelector('input[name="close-reason"]:checked').value;
+  const body   = { close_reason: reason };
+
+  if (reason === "expired") {
+    const s = parseFloat(document.getElementById("cm-underlying").value);
+    if (isNaN(s) || s < 0) { showToast("Ingresá el precio al vencimiento", true); return; }
+    body.close_underlying = s;
+  } else {
+    const lb = parseFloat(document.getElementById("cm-long-bid").value);
+    const sa = parseFloat(document.getElementById("cm-short-ask").value);
+    if (isNaN(lb) || isNaN(sa)) { showToast("Ingresá ambos precios de cierre", true); return; }
+    body.close_long_bid  = lb;
+    body.close_short_ask = sa;
+  }
+
   try {
-    const r = await fetch(`/api/positions/${id}`, { method: "DELETE" });
+    const r = await fetch(`/api/positions/${_closingId}`, {
+      method:  "DELETE",
+      headers: {"Content-Type": "application/json"},
+      body:    JSON.stringify(body),
+    });
     if (!r.ok) { const d = await r.json(); throw new Error(d.error || r.statusText); }
-    showToast("Position closed.");
+    document.getElementById("close-modal-overlay").classList.remove("open");
+    showToast(`Posición ${reason === "expired" ? "vencida" : "cerrada"} correctamente.`);
     loadPositions();
   } catch (err) {
     showToast("Error: " + err.message, true);

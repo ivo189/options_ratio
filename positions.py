@@ -59,8 +59,16 @@ class Position:
     # metadata
     id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
     entry_date: str = field(default_factory=lambda: date.today().isoformat())
-    status: str = "active"   # "active" | "closed"
+    status: str = "active"   # "active" | "closed" | "expired"
     note: str = ""
+
+    # closing data (populated when the position is closed or expires)
+    close_date: str | None = None
+    close_reason: str | None = None        # "closed" | "expired"
+    close_long_bid: float | None = None    # price received selling back the long (manual close)
+    close_short_ask: float | None = None   # price paid buying back the shorts (manual close)
+    close_underlying: float | None = None  # underlying price at expiry (expired)
+    result_net: float | None = None        # final P&L $ (auto-calculated)
 
     def __post_init__(self) -> None:
         self.gross_credit = self.short_bid * self.n_short - self.long_ask
@@ -92,6 +100,12 @@ class Position:
             return (exp - date.today()).days
         except ValueError:
             return -1
+
+    def pnl_at_expiry(self, underlying: float) -> float:
+        """P&L at expiration if the underlying closes at `underlying`."""
+        long_payoff  = max(underlying - self.long_strike,  0) * self.lots * 100
+        short_payoff = max(underlying - self.short_strike, 0) * self.n_short * self.lots * 100
+        return round(self.entry_net_credit + long_payoff - short_payoff, 2)
 
     def alert_level(self, current_price: float) -> str:
         """
@@ -131,11 +145,21 @@ class Position:
         p.lots         = int(d["lots"])
         p.long_ask     = float(d["long_ask"])
         p.short_bid    = float(d["short_bid"])
-        p.entry_date   = d.get("entry_date", "")
-        p.status       = d.get("status", "active")
-        p.note         = d.get("note", "")
+        p.entry_date        = d.get("entry_date", "")
+        p.status            = d.get("status", "active")
+        p.note              = d.get("note", "")
+        p.close_date        = d.get("close_date")
+        p.close_reason      = d.get("close_reason")
+        p.close_long_bid    = _opt_float(d.get("close_long_bid"))
+        p.close_short_ask   = d.get("close_short_ask")
+        p.close_underlying  = _opt_float(d.get("close_underlying"))
+        p.result_net        = _opt_float(d.get("result_net"))
         p.__post_init__()
         return p
+
+
+def _opt_float(v) -> float | None:
+    return float(v) if v is not None else None
 
 
 # ---------------------------------------------------------------------------
@@ -199,13 +223,40 @@ def add_position(
     return p
 
 
-def close_position(position_id: str) -> bool:
-    """Mark a position as closed. Returns True if found."""
+def close_position(
+    position_id: str,
+    close_reason: str = "closed",          # "closed" | "expired"
+    close_long_bid: float | None = None,   # for manual close
+    close_short_ask: float | None = None,  # for manual close
+    close_underlying: float | None = None, # for expired
+) -> bool:
+    """Mark a position as closed/expired and compute result_net. Returns True if found."""
+    from ratio_analyzer import ibkr_commission as _comm
+
     with _lock:
         positions = _load_all()
         for p in positions:
             if p.id == position_id:
-                p.status = "closed"
+                p.status       = close_reason          # "closed" or "expired"
+                p.close_reason = close_reason
+                p.close_date   = date.today().isoformat()
+
+                if close_reason == "expired" and close_underlying is not None:
+                    p.close_underlying = close_underlying
+                    p.result_net       = p.pnl_at_expiry(close_underlying)
+
+                elif close_reason == "closed" and close_long_bid is not None and close_short_ask is not None:
+                    p.close_long_bid  = close_long_bid
+                    p.close_short_ask = close_short_ask
+                    close_comm        = _comm(p.lots) + _comm(p.lots * p.n_short)
+                    # credit from selling back long - cost of buying back shorts - commissions
+                    close_pnl         = (
+                        close_long_bid * p.lots * 100
+                        - close_short_ask * p.n_short * p.lots * 100
+                        - close_comm
+                    )
+                    p.result_net = round(p.entry_net_credit + close_pnl, 2)
+
                 _save_all(positions)
                 return True
     return False
