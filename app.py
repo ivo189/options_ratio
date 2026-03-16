@@ -21,7 +21,7 @@ from flask import Flask, render_template, request, jsonify
 
 from ibkr_client import IBKRClient
 from chain_fetcher import fetch_chain, get_underlying_price
-from ratio_analyzer import analyze_bull_spreads
+from ratio_analyzer import find_ratio_spreads
 import watchlist as wl
 from scanner_bot import ScannerBot
 
@@ -102,27 +102,13 @@ def _build_response(
     underlying_price: float,
     chain_df,
     candidates,
+    lots: int = 1,
 ) -> dict:
     """Assemble the JSON payload returned by /api/screen."""
     results = []
-    for rank, c in enumerate(candidates, start=1):
-        d = c.describe()
-        results.append({
-            "rank":               rank,
-            "long_strike":        c.long_strike,
-            "short_strike":       c.short_strike,
-            "ratio":              d["ratio"],
-            "gap":                c.gap_steps,
-            "long_ask":           d["long_ask"],
-            "short_bid":          d["short_bid"],
-            "short_credit_total": d["short_credit_total"],
-            "net_debit":          d["net_debit"],
-            "funding_pct":        d["funding_ratio_%"],
-            "lower_be":           d["lower_BE"],
-            "upper_be":           str(d["upper_BE"]),
-            "max_profit":         d["max_profit_$"],
-            "score":              d["score"],
-        })
+    for rank, s in enumerate(candidates, start=1):
+        d = s.describe(lots=lots)
+        results.append({"rank": rank, **d})
 
     chain_data = (
         chain_df[chain_df["valid"]]
@@ -210,10 +196,9 @@ def api_screen():
     body        = request.get_json(force=True)
     symbol      = body.get("symbol", "").upper().strip()
     expiration  = body.get("expiration", "").replace("-", "").strip()
-    max_ratio   = int(body.get("ratio", 4))
-    max_gap     = int(body.get("gap", 4))
-    min_funding = float(body.get("min_funding", 0.0))
-    top_n       = int(body.get("top", 30))
+    max_gap     = int(body.get("gap", 2))          # default +1/+2 strikes
+    top_n       = int(body.get("top", 20))
+    lots        = max(1, int(body.get("lots", 1))) # reference lot size for commissions
     strike_low  = body.get("strike_low")
     strike_high = body.get("strike_high")
     no_otm      = bool(body.get("no_otm_filter", False))
@@ -223,8 +208,6 @@ def api_screen():
         return jsonify({"error": "symbol is required"}), 400
     if not expiration or len(expiration) != 8 or not expiration.isdigit():
         return jsonify({"error": "expiration must be YYYYMMDD"}), 400
-    if not (1 <= max_ratio <= 4):
-        return jsonify({"error": "ratio must be 1-4"}), 400
     if not (1 <= max_gap <= 4):
         return jsonify({"error": "gap must be 1-4"}), 400
 
@@ -283,15 +266,14 @@ def api_screen():
                 "error": "No valid quotes received. Check market hours and TWS subscriptions.",
             }), 200
 
-        candidates = analyze_bull_spreads(
+        candidates = find_ratio_spreads(
             chain_df=chain_df,
+            underlying_price=underlying_price,
             max_gap_steps=max_gap,
-            max_ratio=max_ratio,
-            min_funding_pct=min_funding,
             top_n=top_n,
         )
 
-        payload = _build_response(symbol, expiration, underlying_price, chain_df, candidates)
+        payload = _build_response(symbol, expiration, underlying_price, chain_df, candidates, lots=lots)
 
         # Store in cache (overwrite any previous entry)
         _result_cache[cache_key] = payload

@@ -1,7 +1,8 @@
 """Background scanner bot for ratio spread opportunities.
 
-Scans a watchlist of symbols periodically, picks the best 30-45 DTE expiration
-for each, fetches the call chain via IBKR, and surfaces the top ratio spreads.
+Scans a watchlist of symbols periodically, picks the best short-dated
+expiration for each (target 5-21 DTE, prefer ~10-14 days), fetches the
+call chain via IBKR, and surfaces the top credit ratio spreads.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from typing import Callable
 
 from chain_fetcher import fetch_chain, get_underlying_price
 from ibkr_client import IBKRClient
-from ratio_analyzer import analyze_bull_spreads
+from ratio_analyzer import find_ratio_spreads
 
 logger = logging.getLogger(__name__)
 
@@ -25,22 +26,24 @@ _BOT_CLIENT_ID = 2  # distinct from the dashboard's client_id=1
 
 
 # ---------------------------------------------------------------------------
-# Expiration picker
+# Expiration picker — short-dated (5-21 DTE, prefer ~10-14)
 # ---------------------------------------------------------------------------
 
 def pick_expiration(
     expirations: list[str],
-    target_min_dte: int = 30,
-    target_max_dte: int = 45,
+    target_min_dte: int = 5,
+    target_max_dte: int = 21,
+    target_ideal_dte: int = 14,
 ) -> str | None:
-    """Return the expiration (YYYYMMDD) closest to 30-45 DTE from today.
+    """
+    Return the expiration (YYYYMMDD) closest to *target_ideal_dte* DTE,
+    constrained to the [target_min_dte, target_max_dte] window.
 
     Falls back to the nearest future expiration if none lands in range.
     """
     today = date.today()
-    target_center = (target_min_dte + target_max_dte) / 2  # 37.5
-
     scored: list[tuple[int, str]] = []
+
     for exp in expirations:
         try:
             exp_date = datetime.strptime(exp, "%Y%m%d").date()
@@ -56,7 +59,7 @@ def pick_expiration(
 
     in_range = [x for x in scored if target_min_dte <= x[0] <= target_max_dte]
     pool = in_range if in_range else scored
-    return min(pool, key=lambda x: abs(x[0] - target_center))[1]
+    return min(pool, key=lambda x: abs(x[0] - target_ideal_dte))[1]
 
 
 # ---------------------------------------------------------------------------
@@ -215,22 +218,13 @@ class ScannerBot:
                     "error": "No valid quotes received",
                 }
 
-            candidates = analyze_bull_spreads(chain_df, top_n=5)
+            spreads = find_ratio_spreads(
+                chain_df=chain_df,
+                underlying_price=underlying_price,
+                top_n=5,
+            )
 
-            top = []
-            for c in candidates:
-                d = c.describe()
-                top.append({
-                    "long_strike":  c.long_strike,
-                    "short_strike": c.short_strike,
-                    "ratio":        d["ratio"],
-                    "net_debit":    d["net_debit"],
-                    "funding_pct":  d["funding_ratio_%"],
-                    "lower_be":     d["lower_BE"],
-                    "upper_be":     str(d["upper_BE"]),
-                    "max_profit":   d["max_profit_$"],
-                    "score":        d["score"],
-                })
+            top = [s.describe(lots=1) for s in spreads]
 
             return {
                 **base,
