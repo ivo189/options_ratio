@@ -22,6 +22,7 @@ from flask import Flask, render_template, request, jsonify
 from ibkr_client import IBKRClient
 from chain_fetcher import fetch_chain, get_underlying_price
 from ratio_analyzer import find_ratio_spreads
+from roll_advisor import analyze_roll
 import watchlist as wl
 from scanner_bot import ScannerBot
 
@@ -355,6 +356,121 @@ def api_bot_scan_now():
 @app.route("/api/bot/results")
 def api_bot_results():
     return jsonify(_bot.get_results())
+
+
+# ---------------------------------------------------------------------------
+# Roll advisor route
+# ---------------------------------------------------------------------------
+
+@app.route("/api/roll", methods=["POST"])
+def api_roll():
+    """
+    Analyze roll scenarios for an open ratio spread position.
+
+    Request body (JSON):
+      symbol              : str   — underlying ticker
+      expiration          : str   — YYYYMMDD
+      long_strike         : float — strike of the long leg
+      short_strike        : float — strike of the short leg
+      n_short             : int   — M: shorts per long in original ratio (2 or 3)
+      lots                : int   — N: number of long contracts held
+      entry_net_credit    : float — $ net credit received at entry (after commissions)
+      max_new_gap         : int   — max strike steps above short_strike for new short (default 2)
+
+    Returns a list of roll scenarios ordered by new_upper_BE_pct descending.
+    """
+    body = request.get_json(force=True)
+    symbol           = body.get("symbol", "").upper().strip()
+    expiration       = body.get("expiration", "").replace("-", "").strip()
+    long_strike      = body.get("long_strike")
+    short_strike     = body.get("short_strike")
+    n_short          = int(body.get("n_short", 3))
+    lots             = max(1, int(body.get("lots", 1)))
+    entry_net_credit = float(body.get("entry_net_credit", 0))
+    max_new_gap      = int(body.get("max_new_gap", 2))
+
+    if not symbol:
+        return jsonify({"error": "symbol is required"}), 400
+    if not expiration or len(expiration) != 8 or not expiration.isdigit():
+        return jsonify({"error": "expiration must be YYYYMMDD"}), 400
+    if long_strike is None or short_strike is None:
+        return jsonify({"error": "long_strike and short_strike are required"}), 400
+    if n_short not in (2, 3):
+        return jsonify({"error": "n_short must be 2 or 3"}), 400
+
+    long_strike  = float(long_strike)
+    short_strike = float(short_strike)
+
+    try:
+        client = _connect()
+        try:
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                price_fut  = pool.submit(get_underlying_price, client, symbol)
+                params_fut = pool.submit(client.request_option_params, symbol)
+                underlying_price = price_fut.result()
+                all_strikes      = params_fut.result().get("strikes", [])
+
+            if not all_strikes:
+                return jsonify({"error": f"No option parameters for {symbol}"}), 404
+
+            # Fetch chain around the relevant strikes (original + possible new shorts)
+            lo = min(long_strike, short_strike) * 0.95
+            hi = short_strike * (1 + max_new_gap * 0.10 + 0.05)
+            chain_df = fetch_chain(
+                client=client,
+                symbol=symbol,
+                expiration=expiration,
+                right="C",
+                strikes=all_strikes,
+                timeout_per_strike=6.0,
+                underlying_price=underlying_price,
+                otm_only=False,
+                strike_range=(lo, hi),
+            )
+        finally:
+            client.disconnect_clean()
+
+        if int(chain_df["valid"].sum()) == 0:
+            return jsonify({"error": "No valid quotes received for the given strikes."}), 200
+
+        scenarios = analyze_roll(
+            original_long_strike=long_strike,
+            original_short_strike=short_strike,
+            n_short=n_short,
+            lots=lots,
+            entry_net_credit=entry_net_credit,
+            chain_df=chain_df,
+            underlying_price=underlying_price,
+            max_new_gap=max_new_gap,
+        )
+
+        if not scenarios:
+            return jsonify({
+                "error": "Could not build roll scenarios. "
+                         "Check that the original strikes exist in the current chain.",
+            }), 200
+
+        status = _market_status()
+        return jsonify({
+            "symbol":              symbol,
+            "expiration":          expiration,
+            "underlying_price":    round(underlying_price, 2),
+            "position": {
+                "long_strike":  long_strike,
+                "short_strike": short_strike,
+                "n_short":      n_short,
+                "lots":         lots,
+                "entry_net_credit_$": entry_net_credit,
+            },
+            "scenarios":  [s.describe() for s in scenarios],
+            "market":     status,
+        })
+
+    except ConnectionError as exc:
+        return jsonify({"error": str(exc)}), 503
+    except Exception as exc:
+        logging.exception("Roll advisor error")
+        return jsonify({"error": str(exc)}), 500
 
 
 if __name__ == "__main__":
