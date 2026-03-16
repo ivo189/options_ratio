@@ -7,3 +7,7 @@ build/
 .venv/
 venv/
 *.log
+
+# Runtime data files (user-specific, persisted by the app)
+watchlist.json
+positions.json
