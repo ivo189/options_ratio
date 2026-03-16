@@ -23,6 +23,7 @@ from ibkr_client import IBKRClient
 from chain_fetcher import fetch_chain, get_underlying_price
 from ratio_analyzer import find_ratio_spreads
 from roll_advisor import analyze_roll
+import positions as pos
 import watchlist as wl
 from scanner_bot import ScannerBot
 
@@ -380,26 +381,42 @@ def api_roll():
     Returns a list of roll scenarios ordered by new_upper_BE_pct descending.
     """
     body = request.get_json(force=True)
-    symbol           = body.get("symbol", "").upper().strip()
-    expiration       = body.get("expiration", "").replace("-", "").strip()
-    long_strike      = body.get("long_strike")
-    short_strike     = body.get("short_strike")
-    n_short          = int(body.get("n_short", 3))
-    lots             = max(1, int(body.get("lots", 1)))
-    entry_net_credit = float(body.get("entry_net_credit", 0))
-    max_new_gap      = int(body.get("max_new_gap", 2))
 
-    if not symbol:
-        return jsonify({"error": "symbol is required"}), 400
-    if not expiration or len(expiration) != 8 or not expiration.isdigit():
-        return jsonify({"error": "expiration must be YYYYMMDD"}), 400
-    if long_strike is None or short_strike is None:
-        return jsonify({"error": "long_strike and short_strike are required"}), 400
-    if n_short not in (2, 3):
-        return jsonify({"error": "n_short must be 2 or 3"}), 400
+    # Allow loading position details from a stored position_id
+    position_id = body.get("position_id")
+    if position_id:
+        stored = pos.get_position(position_id)
+        if stored is None:
+            return jsonify({"error": f"Position {position_id} not found"}), 404
+        symbol           = stored.symbol
+        expiration       = stored.expiration
+        long_strike      = stored.long_strike
+        short_strike     = stored.short_strike
+        n_short          = stored.n_short
+        lots             = stored.lots
+        entry_net_credit = stored.entry_net_credit
+    else:
+        symbol           = body.get("symbol", "").upper().strip()
+        expiration       = body.get("expiration", "").replace("-", "").strip()
+        long_strike      = body.get("long_strike")
+        short_strike     = body.get("short_strike")
+        n_short          = int(body.get("n_short", 3))
+        lots             = max(1, int(body.get("lots", 1)))
+        entry_net_credit = float(body.get("entry_net_credit", 0))
 
-    long_strike  = float(long_strike)
-    short_strike = float(short_strike)
+        if not symbol:
+            return jsonify({"error": "symbol is required"}), 400
+        if not expiration or len(expiration) != 8 or not expiration.isdigit():
+            return jsonify({"error": "expiration must be YYYYMMDD"}), 400
+        if long_strike is None or short_strike is None:
+            return jsonify({"error": "long_strike and short_strike are required"}), 400
+        if n_short not in (2, 3):
+            return jsonify({"error": "n_short must be 2 or 3"}), 400
+
+        long_strike  = float(long_strike)
+        short_strike = float(short_strike)
+
+    max_new_gap = int(body.get("max_new_gap", 2))
 
     try:
         client = _connect()
@@ -471,6 +488,132 @@ def api_roll():
     except Exception as exc:
         logging.exception("Roll advisor error")
         return jsonify({"error": str(exc)}), 500
+
+
+# ---------------------------------------------------------------------------
+# Position routes
+# ---------------------------------------------------------------------------
+
+@app.route("/api/positions", methods=["GET"])
+def api_positions_get():
+    """Return all active positions with their stored data."""
+    status_filter = request.args.get("status", "active")
+    if status_filter not in ("active", "closed", "all"):
+        return jsonify({"error": "status must be active, closed, or all"}), 400
+    all_pos = pos.get_positions(status=None if status_filter == "all" else status_filter)
+    return jsonify({"positions": [p.to_dict() for p in all_pos]})
+
+
+@app.route("/api/positions", methods=["POST"])
+def api_positions_add():
+    """
+    Declare that you took a trade from the screener.
+
+    Required fields:
+      symbol, expiration (YYYYMMDD), long_strike, short_strike,
+      n_short (2 or 3), lots, long_ask, short_bid
+
+    Optional:
+      note  — free-text label
+
+    The entry_net_credit, upper_BE, commissions, and max_profit_price
+    are computed automatically from the fill prices.
+    """
+    body = request.get_json(force=True)
+    required = ["symbol", "expiration", "long_strike", "short_strike",
+                "n_short", "lots", "long_ask", "short_bid"]
+    missing = [k for k in required if body.get(k) is None]
+    if missing:
+        return jsonify({"error": f"Missing fields: {', '.join(missing)}"}), 400
+
+    n_short = int(body["n_short"])
+    if n_short not in (2, 3):
+        return jsonify({"error": "n_short must be 2 or 3"}), 400
+
+    try:
+        p = pos.add_position(
+            symbol       = str(body["symbol"]).upper().strip(),
+            expiration   = str(body["expiration"]).replace("-", "").strip(),
+            long_strike  = float(body["long_strike"]),
+            short_strike = float(body["short_strike"]),
+            n_short      = n_short,
+            lots         = max(1, int(body["lots"])),
+            long_ask     = float(body["long_ask"]),
+            short_bid    = float(body["short_bid"]),
+            note         = str(body.get("note", "")),
+        )
+        return jsonify({"position": p.to_dict()}), 201
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/positions/<position_id>", methods=["DELETE"])
+def api_positions_close(position_id: str):
+    """Mark a position as closed (does not delete it — keeps history)."""
+    found = pos.close_position(position_id)
+    if not found:
+        return jsonify({"error": f"Position {position_id} not found"}), 404
+    return jsonify({"ok": True, "id": position_id, "status": "closed"})
+
+
+# ---------------------------------------------------------------------------
+# Position alerts
+# ---------------------------------------------------------------------------
+
+@app.route("/api/positions/alerts", methods=["GET"])
+def api_positions_alerts():
+    """
+    For every active position, fetch the current underlying price from IBKR
+    and return the alert level.
+
+    Alert levels:
+      ok      — price ≤ short_strike (at or below max-profit zone)
+      warning — short_strike < price ≤ upper_BE  (past max profit, still ok
+                at expiry but declining — consider rolling)
+      alert   — price > upper_BE  (past break-even, losing at expiry — roll urgently)
+      unknown — could not retrieve current price
+    """
+    active = pos.get_positions(status="active")
+    if not active:
+        return jsonify({"alerts": []})
+
+    # Deduplicate symbols so we open one IBKR connection and batch price fetches
+    symbols = list({p.symbol for p in active})
+    prices: dict[str, float] = {}
+
+    try:
+        client = _connect()
+        try:
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            with ThreadPoolExecutor(max_workers=min(len(symbols), 5)) as pool:
+                futs = {pool.submit(get_underlying_price, client, sym): sym
+                        for sym in symbols}
+                for fut in as_completed(futs):
+                    sym = futs[fut]
+                    try:
+                        prices[sym] = fut.result()
+                    except Exception:
+                        prices[sym] = float("nan")
+        finally:
+            client.disconnect_clean()
+    except ConnectionError as exc:
+        return jsonify({"error": str(exc)}), 503
+
+    alerts = []
+    for p in active:
+        current = prices.get(p.symbol, float("nan"))
+        level   = p.alert_level(current)
+        d       = p.to_dict()
+        d["current_price"] = None if math.isnan(current) else round(current, 2)
+        d["alert_level"]   = level
+        d["dte"]           = p.dte()
+        alerts.append(d)
+
+    # Sort: alert first, then warning, then ok
+    _order = {"alert": 0, "warning": 1, "ok": 2, "unknown": 3}
+    alerts.sort(key=lambda a: _order.get(a["alert_level"], 9))
+
+    return jsonify({"alerts": alerts})
 
 
 if __name__ == "__main__":
