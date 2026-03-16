@@ -12,7 +12,7 @@ import math
 import threading
 import zoneinfo
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, datetime
+from datetime import date, datetime, time as dtime
 from typing import Callable
 
 from chain_fetcher import fetch_chain, get_underlying_price
@@ -23,6 +23,18 @@ logger = logging.getLogger(__name__)
 
 _ET = zoneinfo.ZoneInfo("America/New_York")
 _BOT_CLIENT_ID = 2  # distinct from the dashboard's client_id=1
+
+_MARKET_OPEN  = dtime(9, 30)
+_MARKET_CLOSE = dtime(16, 0)
+
+
+def _market_is_open() -> bool:
+    """Return True only during NYSE regular session (Mon-Fri 09:30-16:00 ET)."""
+    now = datetime.now(_ET)
+    return (
+        now.weekday() < 5
+        and _MARKET_OPEN <= now.time() < _MARKET_CLOSE
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -77,10 +89,11 @@ class ScannerBot:
         self._thread: threading.Thread | None = None
         self._symbols_getter: Callable[[], list[str]] = list
 
-        self.interval_minutes: int = 15
+        self.interval_minutes: int = 5
         self.running: bool = False
         self.last_scan_et: str | None = None
         self.next_scan_et: str | None = None
+        self.last_skipped_et: str | None = None   # last time a scan was skipped (market closed)
 
         # symbol -> result dict
         self.results: dict[str, dict] = {}
@@ -90,7 +103,7 @@ class ScannerBot:
 
     def start(
         self,
-        interval_minutes: int = 15,
+        interval_minutes: int = 5,
         symbols_getter: Callable[[], list[str]] | None = None,
     ) -> None:
         if self.running:
@@ -121,7 +134,9 @@ class ScannerBot:
         return {
             "running": self.running,
             "interval_minutes": self.interval_minutes,
+            "market_open": _market_is_open(),
             "last_scan": self.last_scan_et,
+            "last_skipped": self.last_skipped_et,
             "next_scan": self.next_scan_et,
         }
 
@@ -133,9 +148,13 @@ class ScannerBot:
 
     def _loop(self) -> None:
         while not self._stop_event.is_set():
-            symbols = self._symbols_getter()
-            if symbols:
-                self._do_scan(symbols)
+            if _market_is_open():
+                symbols = self._symbols_getter()
+                if symbols:
+                    self._do_scan(symbols)
+            else:
+                self.last_skipped_et = datetime.now(_ET).strftime("%Y-%m-%d %H:%M ET")
+                logger.debug("Market closed — skipping scan")
             self._stop_event.wait(timeout=self.interval_minutes * 60)
         self.running = False
 
