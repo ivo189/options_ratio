@@ -1485,9 +1485,22 @@ async function wlRemove(sym) {
   } catch(e) { showToast("Error: " + e.message, true); }
 }
 
+async function loadIbkrConfig() {
+  try {
+    const r = await fetch("/api/ibkr-config");
+    if (!r.ok) return;
+    const d = await r.json();
+    const hostEl = document.getElementById("conn-host");
+    const portEl = document.getElementById("conn-port");
+    if (hostEl) hostEl.textContent = d.host || "—";
+    if (portEl) portEl.textContent = d.port || "—";
+  } catch(_) { /* non-critical */ }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   const wlInput = document.getElementById("wl-input");
   if (wlInput) wlInput.addEventListener("keydown", e => { if (e.key === "Enter") wlAdd(); });
+  loadIbkrConfig();
 });
 
 // ── Bot controls ──────────────────────────────────────────────────────────────

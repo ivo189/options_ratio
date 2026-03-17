@@ -26,6 +26,17 @@ class IBKRClient(EWrapper, EClient):
     """
 
     def __init__(self, host: str, port: int, client_id: int):
+        if not host:
+            raise ValueError(
+                "IBKR_HOST is not configured. "
+                "Set IBKR_HOST in your .env file (e.g. IBKR_HOST=127.0.0.1 for TWS)."
+            )
+        if not port:
+            raise ValueError(
+                "IBKR_PORT is not configured. "
+                "Set IBKR_PORT in your .env file (e.g. IBKR_PORT=7497 for TWS paper)."
+            )
+
         EWrapper.__init__(self)
         EClient.__init__(self, wrapper=self)
 

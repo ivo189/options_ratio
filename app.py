@@ -149,6 +149,16 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/api/ibkr-config")
+def api_ibkr_config():
+    """Return the IBKR connection settings currently in use."""
+    return jsonify({
+        "host":      IBKR_HOST,
+        "port":      IBKR_PORT,
+        "client_id": IBKR_CLIENT_ID,
+    })
+
+
 @app.route("/api/market-status")
 def api_market_status():
     return jsonify(_market_status())
