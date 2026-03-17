@@ -509,6 +509,20 @@
   }
   .btn-close-pos:hover { background: #3a1515; }
 
+  /* Row checkboxes */
+  .row-check { accent-color: var(--accent); width: 14px; height: 14px; cursor: pointer; }
+  #select-all { accent-color: var(--accent); width: 14px; height: 14px; cursor: pointer; }
+
+  /* Log-selected toolbar */
+  .log-selected-bar {
+    display: none; align-items: center; gap: 10px;
+    padding: 6px 10px; margin: 0 0 6px;
+    background: #0d2035; border: 1px solid var(--accent);
+    border-radius: 6px; font-size: 12px;
+  }
+  .log-selected-bar.show { display: flex; }
+  .log-selected-bar .sel-count { color: var(--text-muted); flex: 1; }
+
   /* P&L scenario grid */
   .pnl-pos  { color: var(--green); }
   .pnl-neg  { color: var(--red); }
@@ -798,8 +812,9 @@
       </div>
     </div>
     <div class="modal-actions">
-      <button class="btn-cancel" onclick="closeModal()">Cancel</button>
-      <button class="btn-log"    onclick="submitPosition()">Log Trade</button>
+      <button class="btn-cancel" onclick="closeModal()">Cancelar</button>
+      <button class="btn-cancel" id="btn-skip-queue" style="display:none" onclick="skipInQueue()">Omitir →</button>
+      <button class="btn-log"    id="btn-submit-log" onclick="submitPosition()">Log Trade</button>
     </div>
   </div>
 </div>
@@ -1061,10 +1076,15 @@ function renderResults(data, silent) {
       <div class="chart-title">Call chain · bid / ask / mid by strike</div>
       <canvas id="chain-chart"></canvas>
     </div>
+    <div class="log-selected-bar" id="log-selected-bar">
+      <span class="sel-count" id="sel-count-label">0 seleccionadas</span>
+      <button class="btn-log" onclick="logSelected()">Log seleccionadas</button>
+    </div>
     <div class="table-wrap">
       <table id="results-table">
         <thead>
           <tr>
+            <th style="width:28px"><input type="checkbox" id="select-all" title="Seleccionar todas"></th>
             <th>#</th>
             <th data-col="long_strike">Long K</th>
             <th data-col="short_strike">Short K</th>
@@ -1100,6 +1120,12 @@ function renderResults(data, silent) {
       if (sortAsc) th.classList.add("asc");
       renderBody(lastData.candidates);
     });
+  });
+
+  // Select-all checkbox
+  document.getElementById("select-all").addEventListener("change", e => {
+    document.querySelectorAll(".row-check").forEach(cb => cb.checked = e.target.checked);
+    updateSelectionBar();
   });
 
   updateStats(data, expFmt);
@@ -1177,8 +1203,10 @@ function renderBody(candidates) {
   if (!tbody) return;
   tbody.innerHTML = "";
   sorted.forEach((c, idx) => {
+    const origIdx = lastData.candidates.indexOf(c);
     const tr = document.createElement("tr");
     tr.innerHTML = `
+      <td style="text-align:center"><input type="checkbox" class="row-check" data-orig="${origIdx}" onchange="updateSelectionBar()"></td>
       <td>${idx + 1}</td>
       <td class="strike">${c.long_strike.toFixed(2)}</td>
       <td class="strike">${c.short_strike.toFixed(2)}</td>
@@ -1192,7 +1220,7 @@ function renderBody(candidates) {
       <td style="color:var(--text-muted)">${c.upper_be}</td>
       <td style="color:var(--purple)">${c.max_profit >= 0 ? "+" : ""}${c.max_profit.toFixed(0)}</td>
       <td>${colorScore(c.score)}</td>
-      <td><button class="btn-log-row" onclick="openConfirmModal(${idx})">Log</button></td>`;
+      <td><button class="btn-log-row" onclick="openConfirmModal(${origIdx})">Log</button></td>`;
     tbody.appendChild(tr);
   });
 }
@@ -1550,9 +1578,50 @@ function buildCandTable(candidates) {
 // ── Confirm-trade modal ───────────────────────────────────────────────────────
 let _modalCtx = null;  // { symbol, expiration, n_short, long_strike, short_strike }
 
-function openConfirmModal(idx) {
+// ── Log queue (multi-select) ──────────────────────────────────────────────────
+let _logQueue    = [];   // array of origIdx into lastData.candidates
+let _logQueuePos = 0;
+
+function updateSelectionBar() {
+  const checked = document.querySelectorAll(".row-check:checked").length;
+  const bar     = document.getElementById("log-selected-bar");
+  const lbl     = document.getElementById("sel-count-label");
+  if (!bar) return;
+  bar.classList.toggle("show", checked > 0);
+  if (lbl) lbl.textContent = `${checked} seleccionada${checked !== 1 ? "s" : ""}`;
+  // sync select-all indeterminate state
+  const total = document.querySelectorAll(".row-check").length;
+  const sa    = document.getElementById("select-all");
+  if (sa) { sa.checked = checked === total && total > 0; sa.indeterminate = checked > 0 && checked < total; }
+}
+
+function logSelected() {
+  const indices = Array.from(document.querySelectorAll(".row-check:checked"))
+    .map(cb => parseInt(cb.dataset.orig));
+  if (!indices.length) { showToast("Seleccioná al menos una fila", true); return; }
+  _logQueue    = indices;
+  _logQueuePos = 0;
+  _openFromQueue();
+}
+
+function _openFromQueue() {
+  if (_logQueuePos >= _logQueue.length) {
+    _logQueue = [];
+    return;
+  }
+  openConfirmModal(_logQueue[_logQueuePos]);
+}
+
+function skipInQueue() {
+  _logQueuePos++;
+  document.getElementById("modal-overlay").classList.remove("open");
+  setTimeout(_openFromQueue, 120);  // small delay so modal re-opens cleanly
+}
+
+// ── Confirm-trade modal ───────────────────────────────────────────────────────
+function openConfirmModal(origIdx) {
   if (!lastData || !lastData.candidates) return;
-  const c = lastData.candidates[idx];
+  const c = lastData.candidates[origIdx];
   if (!c) return;
   _modalCtx = {
     symbol:       lastData.symbol,
@@ -1561,8 +1630,15 @@ function openConfirmModal(idx) {
     long_strike:  c.long_strike,
     short_strike: c.short_strike,
   };
+
+  // Queue-aware title and buttons
+  const inQueue  = _logQueue.length > 0;
+  const progress = inQueue ? ` (${_logQueuePos + 1}/${_logQueue.length})` : "";
   document.getElementById("modal-title").textContent =
-    `Log Trade — ${lastData.symbol} ${c.long_strike}/${c.short_strike} (${c.ratio})`;
+    `Log Trade${progress} — ${lastData.symbol} ${c.long_strike}/${c.short_strike} (${c.ratio})`;
+  document.getElementById("btn-skip-queue").style.display =
+    (inQueue && _logQueue.length > 1) ? "" : "none";
+
   document.getElementById("m-long-ask").value  = c.long_ask.toFixed(2);
   document.getElementById("m-short-bid").value = c.short_bid.toFixed(2);
   document.getElementById("m-lots").value      = 1;
@@ -1574,6 +1650,9 @@ function openConfirmModal(idx) {
 
 function closeModal(e) {
   if (e && e.target !== document.getElementById("modal-overlay")) return;
+  // Closing cancels the whole queue
+  _logQueue = [];
+  _logQueuePos = 0;
   document.getElementById("modal-overlay").classList.remove("open");
 }
 
@@ -1627,8 +1706,14 @@ async function submitPosition() {
       body: JSON.stringify(body),
     });
     if (!r.ok) { const d = await r.json(); throw new Error(d.error || r.statusText); }
+    showToast(`Registrado: ${body.symbol} ${body.long_strike}/${body.short_strike}`);
     document.getElementById("modal-overlay").classList.remove("open");
-    showToast(`Trade logged: ${body.symbol} ${body.long_strike}/${body.short_strike}`);
+
+    // Advance queue if active
+    if (_logQueue.length > 0) {
+      _logQueuePos++;
+      setTimeout(_openFromQueue, 120);
+    }
   } catch (err) {
     showToast("Error: " + err.message, true);
   }
