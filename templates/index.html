@@ -378,6 +378,23 @@
   .interval-row input { width: 60px; }
   .interval-row span  { font-size: 11px; color: var(--text-muted); }
 
+  /* Bot config rules */
+  .cfg-section { margin-top:12px; padding-top:12px; border-top:1px solid var(--border); }
+  .cfg-row {
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 11px; margin-bottom: 6px; gap: 6px;
+  }
+  .cfg-row span { color: var(--text-muted); flex: 1; }
+  .cfg-row input[type="number"] { width: 48px; text-align: right; }
+  .cfg-row input[type="checkbox"] { accent-color: var(--accent); width:14px; height:14px; cursor:pointer; }
+  .cfg-field { margin-bottom: 6px; font-size: 11px; }
+  .cfg-field label { color: var(--text-muted); display: block; margin-bottom: 2px; }
+  .cfg-field input { width: 100%; box-sizing: border-box; }
+  .cfg-save { width: 100%; margin-top: 8px; }
+  .cfg-tag  { font-size: 9px; padding: 1px 5px; border-radius: 3px; vertical-align: middle;
+              background: #0d2a18; color: var(--green); border: 1px solid #1a5c30; margin-left: 4px; }
+  .cfg-tag.off { background: var(--surface2); color: var(--text-muted); border-color: var(--border); }
+
   /* Bot results main */
   .bot-main { overflow-y: auto; padding: 16px 20px; }
   .bot-results-header {
@@ -703,9 +720,58 @@
     <div style="margin-top:auto;padding-top:14px;border-top:1px solid var(--border)">
       <div class="section-label">Expiration target</div>
       <div style="font-size:11px;color:var(--text-muted);line-height:1.8">
-        Auto: closest to <span style="color:var(--text)">30-45 DTE</span><br>
+        Auto: closest to <span style="color:var(--text)">5-21 DTE</span><br>
         Type: <span style="color:var(--text)">Call ratio spread</span>
       </div>
+    </div>
+
+    <!-- ── Reglas automáticas ── -->
+    <div class="cfg-section">
+      <div class="section-label">
+        Apertura automática
+        <span class="cfg-tag off" id="cfg-auto-tag">off</span>
+      </div>
+
+      <div class="cfg-row">
+        <span>Habilitada</span>
+        <input type="checkbox" id="cfg-auto-open" onchange="updateCfgTag()">
+      </div>
+      <div class="cfg-row">
+        <span>Strike largo ≥ ATM +</span>
+        <input type="number" id="cfg-otm-pct" value="10" min="1" max="50" step="1">
+        <span>%</span>
+      </div>
+      <div class="cfg-row">
+        <span>Crédito neto mínimo</span>
+        <input type="number" id="cfg-min-credit" value="0" min="0" step="0.01">
+        <span>$/sh</span>
+      </div>
+
+      <button class="btn-scan cfg-save" onclick="saveConfig()">Guardar reglas</button>
+    </div>
+
+    <!-- ── Notificaciones Telegram ── -->
+    <div class="cfg-section">
+      <div class="section-label">Notificaciones Telegram</div>
+
+      <div class="cfg-field">
+        <label>Bot token</label>
+        <input type="password" id="cfg-tg-token" placeholder="123456:ABC…" autocomplete="off">
+      </div>
+      <div class="cfg-field">
+        <label>Chat ID</label>
+        <input type="text" id="cfg-tg-chat" placeholder="-100123456">
+      </div>
+      <div class="cfg-row" style="margin-top:4px">
+        <span>Alertar si precio > upper BE</span>
+        <input type="checkbox" id="cfg-notify-be" checked>
+      </div>
+      <div class="cfg-row">
+        <span>Notificar apertura automática</span>
+        <input type="checkbox" id="cfg-notify-open" checked>
+      </div>
+
+      <button class="btn-scan cfg-save" onclick="saveConfig()">Guardar Telegram</button>
     </div>
   </aside>
 
@@ -1362,6 +1428,7 @@ function switchTab(tab) {
     tabBot.classList.add("active");
     loadWatchlist();
     pollBotStatus();
+    loadConfig();
   } else if (tab === "positions") {
     posView.classList.add("active");
     tabPositions.classList.add("active");
@@ -1425,6 +1492,57 @@ document.addEventListener("DOMContentLoaded", () => {
 
 // ── Bot controls ──────────────────────────────────────────────────────────────
 let botPollTimer = null;
+
+// ── Bot configuration ─────────────────────────────────────────────────────────
+
+async function loadConfig() {
+  try {
+    const r = await fetch("/api/bot/config");
+    const d = await r.json();
+    document.getElementById("cfg-auto-open").checked    = d.auto_open;
+    document.getElementById("cfg-otm-pct").value        = d.min_otm_pct;
+    document.getElementById("cfg-min-credit").value     = d.min_net_credit;
+    document.getElementById("cfg-tg-chat").value        = d.telegram_chat_id || "";
+    document.getElementById("cfg-notify-be").checked    = d.notify_be_breach;
+    document.getElementById("cfg-notify-open").checked  = d.notify_open;
+    if (d.telegram_token_set) {
+      document.getElementById("cfg-tg-token").placeholder = "••••••• (guardado)";
+    }
+    updateCfgTag();
+  } catch(e) { /* silent — not critical */ }
+}
+
+function updateCfgTag() {
+  const on  = document.getElementById("cfg-auto-open").checked;
+  const tag = document.getElementById("cfg-auto-tag");
+  tag.textContent = on ? "on" : "off";
+  tag.classList.toggle("off", !on);
+}
+
+async function saveConfig() {
+  const body = {
+    auto_open:        document.getElementById("cfg-auto-open").checked,
+    min_otm_pct:      parseFloat(document.getElementById("cfg-otm-pct").value)    || 10,
+    min_net_credit:   parseFloat(document.getElementById("cfg-min-credit").value) || 0,
+    telegram_chat_id: document.getElementById("cfg-tg-chat").value.trim(),
+    notify_be_breach: document.getElementById("cfg-notify-be").checked,
+    notify_open:      document.getElementById("cfg-notify-open").checked,
+  };
+  const token = document.getElementById("cfg-tg-token").value.trim();
+  if (token) body.telegram_token = token;
+
+  try {
+    const r = await fetch("/api/bot/config", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error((await r.json()).error || r.statusText);
+    showToast("Configuración guardada");
+    if (token) document.getElementById("cfg-tg-token").value = "";  // clear token field after saving
+    updateCfgTag();
+  } catch(e) { showToast("Error: " + e.message, true); }
+}
 
 async function botStart() {
   const interval = parseInt(document.getElementById("bot-interval").value) || 15;

@@ -1,39 +1,54 @@
 # Reglas de operación automática — Ratio Call Spreads
 
 > Documento de diseño para el bot de ejecución automática.
-> Las reglas aquí definidas son las que eventualmente se implementarán en `scanner_bot.py`.
-> Estado actual: **solo documentación**, sin ejecución automática.
+> Implementación en `scanner_bot.py` / `bot_config.py`.
+> Los parámetros configurables se editan desde la pestaña **Bot Scanner** del dashboard.
+
+---
+
+## Estado de implementación
+
+| Función | Estado |
+|---------|--------|
+| Screener manual | ✅ Operativo |
+| Scanner periódico (watchlist) | ✅ Operativo |
+| Parámetros configurables (UI) | ✅ Operativo |
+| Apertura automática de posiciones | 🔜 Próximo paso |
+| Notificaciones Telegram (BE breach) | 🔜 Próximo paso |
+| Roll manual + alerta | 🔜 Próximo paso |
+| Roll automático | ⏳ Futuro |
+| Cierre automático de vencimientos | ⏳ Futuro |
 
 ---
 
 ## 1. Estrategia base
 
-Venta de ratio call spreads (1:2 ó 1:3) sobre acciones de alta liquidez.
+Venta de ratio call spreads **1:2** sobre acciones de alta liquidez.
 
 - **Leg largo**: 1 call comprado (protección)
-- **Leg corto**: 2 ó 3 calls vendidos a strike superior
-- **Objetivo**: cobrar crédito neto o deuda mínima; el subyacente no sube hasta los strikes
+- **Leg corto**: 2 calls vendidos a un strike superior
+- **Objetivo**: cobrar crédito neto; el subyacente no sube hasta los strikes antes del vencimiento
 - **DTE target**: 5–21 días (preferido ~10–14)
-- **Resultado ideal**: todas las opciones expiran sin valor
+- **Resultado ideal**: todas las opciones expiran sin valor; crédito cobrado = ganancia neta
 
 ---
 
 ## 2. Filtros de apertura (pre-condiciones)
 
-Antes de evaluar cualquier spread, se verifican estos filtros. Si alguno falla, **no se opera**.
+Antes de evaluar cualquier spread se verifican estos filtros. Si alguno falla, **no se opera**.
 
 ### 2.1 Earnings antes del vencimiento ❌
-Si el activo tiene una fecha de earnings/conference call **antes** del vencimiento de la opción elegida,
+Si el activo tiene una fecha de earnings o conference call **antes** del vencimiento de la opción elegida,
 descartar completamente ese símbolo para esa expiración.
 
 Razón: los resultados generan saltos bruscos que invalidan los supuestos del spread.
 
-> **Implementación futura**: consultar earnings date vía yfinance (`Ticker.calendar`) o
-> una API de eventos corporativos, y comparar contra la expiración elegida.
+> **Implementación pendiente**: consultar earnings date vía `yfinance` (`Ticker.calendar`)
+> y comparar contra la expiración elegida. Campo en `BotConfig`: `check_earnings: bool = True`.
 
 ### 2.2 Liquidez mínima
 - Bid/ask válidos en ambas patas (ya filtrado por el screener actual)
-- Open interest > N contratos (umbral a definir)
+- Open interest mínimo (umbral a definir)
 
 ### 2.3 Horario de mercado
 Solo operar en sesión regular NYSE (09:30–16:00 ET, lunes a viernes).
@@ -45,97 +60,102 @@ El bot ya respeta esto vía `_market_is_open()` en `scanner_bot.py`.
 
 Un spread se abre automáticamente si cumple **todas** estas condiciones:
 
-### 3.1 Bases muy fuera del dinero (Far OTM)
-Ambos strikes deben estar **significativamente por encima** del precio actual del subyacente.
+### 3.1 Strike largo suficientemente OTM
+```
+long_strike ≥ spot_price × (1 + min_otm_pct / 100)
+```
+Parámetro configurable: **`min_otm_pct`** (default 10%).
 
-Razonamiento: cuanto más lejos estén los strikes del precio actual, menor la probabilidad de
-que el subyacente los alcance antes del vencimiento. Eso convierte a la posición en casi
-inalcanzable y el crédito cobrado es prácticamente ganancia asegurada.
+Ejemplo: spot $14.00 → long strike debe ser ≥ $15.40.
 
-> **Umbral sugerido (a calibrar)**: el strike largo debe estar ≥ X% por encima del precio actual.
-> Ejemplo: subyacente en $14.00 → strike largo ≥ $16.50 (+18%), strike corto más arriba todavía.
+Razón: cuanto más fuera del dinero estén los strikes, menor la probabilidad de que el subyacente
+los alcance antes del vencimiento, y el crédito cobrado es prácticamente seguro.
 
-### 3.2 Crédito neto positivo
-`net_credit_per_share > 0` después de comisiones IBKR estimadas.
+### 3.2 Ratio 1:2
+Solo operar spreads con ratio 1:2 en el bot automático.
+Parámetro: **`target_ratio`** (default 2, hardcodeado en la primera versión).
 
-No se abre si la posición tiene deuda neta, incluso si el spread es muy OTM.
-
-### 3.3 Score mínimo
-El score del screener (`−net_debit / spread_width`, mayor es mejor) debe superar un umbral mínimo
-(a definir empíricamente según historial).
+### 3.3 Crédito neto positivo
+```
+net_credit_per_share > min_net_credit   (después de comisiones IBKR)
+```
+Parámetro configurable: **`min_net_credit`** (default 0.0 $/sh — cualquier crédito positivo).
 
 ---
 
 ## 4. Gestión de posiciones abiertas
 
 ### 4.1 Posición ganadora (precio ≤ short strike)
-No hacer nada. Se deja expirar sin valor.
+**No hacer nada.** Se deja expirar sin valor.
 
-### 4.2 Posición en zona de alerta (precio > short strike pero ≤ upper BE)
-Alerta visual en el dashboard (`alert_level = "warning"`).
-**No cerrar**. Evaluar si conviene rollear.
+### 4.2 Precio supera el upper BE → alerta Telegram
+Cuando el subyacente cruza el upper break-even de una posición activa, el bot envía
+una notificación inmediata al canal de Telegram configurado.
 
-### 4.3 Posición comprometida (precio > upper BE)
-**No cerrar la posición**. En su lugar, **rollear a una base más alta** (pirámide).
+El usuario decide si quiere ejecutar el roll manualmente desde el dashboard.
 
-La lógica de roll está implementada en `roll_advisor.py`:
-- Se vende el leg largo original
-- Se transforma el leg corto original en nuevo leg largo
-- Se venden nuevos legs cortos a un strike superior
-- Se mantiene el ratio 1:M
-- El crédito acumulado se recalcula incluyendo el crédito del roll
+Parámetro: **`notify_be_breach`** (default true).
 
-La posición resultante tiene un nuevo upper BE más alto y mayor tamaño (2x los lotes originales).
+### 4.3 Roll (manual por ahora)
+**No cerrar la posición cuando se torna negativa. Rollear a base más alta (pirámide).**
 
-> **Condición para roll automático (a definir)**:
-> - Precio > upper_BE por más de N minutos consecutivos, O
-> - Precio > upper_BE al cierre de la sesión
+La lógica ya está implementada en `roll_advisor.py`:
+- Vender el leg largo original
+- Transformar el leg corto en nuevo leg largo
+- Vender nuevos legs cortos a strike superior (mantiene ratio 1:M)
+- El crédito acumulado incluye entry + roll
+- La nueva posición tiene upper BE más alto y el doble de lotes
+
+> **Futuro**: activar roll automático cuando `auto_roll = True` en `BotConfig`.
 
 ### 4.4 Vencimiento
-Al llegar a DTE = 0, el bot no hace nada automáticamente.
-El usuario registra el resultado manualmente via el botón "Registrar vencimiento"
-(con precio histórico sugerido por Yahoo Finance).
+Al llegar a DTE = 0, el usuario registra el resultado manualmente via el botón
+**"Registrar vencimiento"** en la tab Positions. El precio histórico de cierre
+se sugiere automáticamente vía Yahoo Finance.
 
-> **Futuro**: podría automatizarse registrando el precio de cierre del día de vencimiento
-> via Yahoo Finance a las 16:05 ET y cerrando la posición automáticamente en el sistema.
-
----
-
-## 5. Notificaciones Telegram (futuro)
-
-Cuando el bot ejecute cualquiera de estas acciones, enviará un mensaje al chat configurado:
-
-| Evento | Mensaje ejemplo |
-|--------|----------------|
-| Apertura automática | `✅ Abierto NU 16.5/18.0 (1:3) · crédito neto +$0.08 · vto 2025-01-17` |
-| Roll ejecutado | `🔄 Roll NU → 18.0/20.0 (1:3) · crédito acum. +$0.12 · nuevo BE $21.40` |
-| Alerta warning | `⚠️ NU cruzó el short strike · precio $15.20 > $15.00 · upper BE $16.80` |
-| Alerta crítica | `🚨 NU superó el upper BE · precio $17.10 > $16.80 · evaluando roll` |
-| Vencimiento pendiente | `📋 NU venció ayer · registrar resultado en el dashboard` |
+> **Futuro**: `auto_close_expired = True` → registrar automáticamente a las 16:05 ET.
 
 ---
 
-## 6. Parámetros configurables (a implementar en la UI o config file)
+## 5. Notificaciones Telegram
 
-| Parámetro | Descripción | Valor por defecto sugerido |
-|-----------|-------------|---------------------------|
-| `min_otm_pct` | % mínimo que el strike largo debe estar por encima del spot | 15% |
-| `min_score` | Score mínimo del screener para apertura automática | TBD |
-| `roll_trigger` | Condición para disparar roll (precio > BE por N min) | 15 min |
-| `max_roll_count` | Máximo de rolls permitidos por posición | 2 |
-| `telegram_chat_id` | ID del chat de Telegram para notificaciones | — |
-| `bot_interval_min` | Intervalo de escaneo del bot en minutos | 5 |
-| `target_dte_min` / `max` | Rango de DTE aceptable para aperturas | 5 – 21 |
+Configuración: token del bot + chat ID, editables desde la UI del dashboard.
+
+| Evento | Mensaje |
+|--------|---------|
+| Apertura automática | `✅ Abierto NU 15.50/17.00 (1:2) · crédito +$0.06/sh · vto 2025-02-21` |
+| Precio > upper BE | `⚠️ NU superó upper BE $16.80 · precio actual $17.10 · revisar roll` |
+| Roll recomendado (futuro) | `🔄 Roll sugerido NU → 17.00/19.00 · crédito acum. +$0.14 · nuevo BE $20.40` |
 
 ---
 
-## 7. Lo que falta implementar
+## 6. Parámetros configurables
 
-- [ ] Consulta de earnings date por símbolo (pre-filtro)
-- [ ] Umbral de OTM configurable para apertura automática
-- [ ] Ejecución de órdenes via IBKR (requiere permisos de trading en la cuenta)
-- [ ] Manejo de fills parciales y órdenes limit vs market
-- [ ] Integración Telegram (`python-telegram-bot` o webhook)
-- [ ] Roll automático cuando se dispara la condición
-- [ ] Registro automático de vencimientos a las 16:05 ET
-- [ ] Backtesting de las reglas sobre histórico antes de activar ejecución real
+Todos los parámetros se guardan en `bot_config.json` y se editan desde la
+sección **"Apertura automática"** y **"Notificaciones Telegram"** del sidebar del Bot Scanner.
+
+| Parámetro | UI | Descripción | Default |
+|-----------|-----|-------------|---------|
+| `auto_open` | checkbox Habilitada | Activar apertura automática | `false` |
+| `min_otm_pct` | Strike largo ≥ ATM + N% | % mínimo OTM del leg largo | `10` |
+| `target_ratio` | — | Ratio del spread (1:N) | `2` |
+| `min_net_credit` | Crédito neto mínimo | $/sh mínimo después de comisiones | `0.0` |
+| `telegram_token` | Bot token | Token del bot de Telegram | `""` |
+| `telegram_chat_id` | Chat ID | ID del chat destinatario | `""` |
+| `notify_be_breach` | Alertar si precio > upper BE | Notificar cuando BE es superado | `true` |
+| `notify_open` | Notificar apertura automática | Notificar cuando el bot abre | `true` |
+| `auto_roll` | — (futuro) | Roll automático al superar BE | `false` |
+| `auto_close_expired` | — (futuro) | Registrar vencimientos a las 16:05 ET | `false` |
+
+---
+
+## 7. Checklist de implementación
+
+- [ ] Integración de reglas de apertura en `scanner_bot.py` (leer `BotConfig`, evaluar condiciones)
+- [ ] Ejecución de órdenes via IBKR (requiere permisos trading + manejo de fills)
+- [ ] Filtro de earnings (`yfinance Ticker.calendar` o API de eventos corporativos)
+- [ ] Envío de notificaciones Telegram (`python-telegram-bot` o requests directo a la API)
+- [ ] Monitoreo de BE en posiciones activas → trigger Telegram
+- [ ] Roll automático (cuando `auto_roll = True`)
+- [ ] Cierre automático de vencimientos (cuando `auto_close_expired = True`)
+- [ ] Backtesting de las reglas sobre historial antes de activar ejecución real

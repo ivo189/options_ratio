@@ -26,6 +26,7 @@ from roll_advisor import analyze_roll
 import positions as pos
 import watchlist as wl
 from scanner_bot import ScannerBot
+from bot_config import BotConfig
 
 load_dotenv()
 
@@ -46,7 +47,8 @@ _MARKET_CLOSE = dtime(16, 0)
 _result_cache: dict[tuple[str, str], dict] = {}
 
 # Scanner bot (single global instance)
-_bot = ScannerBot(ibkr_host=IBKR_HOST, ibkr_port=IBKR_PORT)
+_bot     = ScannerBot(ibkr_host=IBKR_HOST, ibkr_port=IBKR_PORT)
+_bot_cfg = BotConfig.load()
 
 
 # ---------------------------------------------------------------------------
@@ -357,6 +359,29 @@ def api_bot_scan_now():
 @app.route("/api/bot/results")
 def api_bot_results():
     return jsonify(_bot.get_results())
+
+
+@app.route("/api/bot/config", methods=["GET"])
+def api_bot_config_get():
+    """Return current bot configuration (token is redacted)."""
+    return jsonify(_bot_cfg.to_public_dict())
+
+
+@app.route("/api/bot/config", methods=["POST"])
+def api_bot_config_post():
+    """Update and persist bot configuration."""
+    global _bot_cfg
+    body = request.get_json(force=True) or {}
+    allowed = {
+        "auto_open", "min_otm_pct", "target_ratio", "min_net_credit",
+        "telegram_token", "telegram_chat_id",
+        "notify_be_breach", "notify_open",
+    }
+    for key in allowed:
+        if key in body:
+            setattr(_bot_cfg, key, body[key])
+    _bot_cfg.save()
+    return jsonify({"ok": True})
 
 
 # ---------------------------------------------------------------------------
