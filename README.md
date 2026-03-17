@@ -1,106 +1,131 @@
-# Options Ratio Screener (IBKR)
+# Options Ratio Screener — Dashboard
 
-Screens real-time options chains from Interactive Brokers and ranks the best
-**ratio bull-spread** combinations based on bid/ask prices.
+Web dashboard para screenear y gestionar **ratio call spreads** en Interactive Brokers.
 
-## What is a ratio bull-spread?
+Conecta a TWS / IB Gateway via la API oficial de IBKR, obtiene cadenas de opciones en
+tiempo real y rankea los mejores spreads por crédito neto, upper BE y score.
 
-You **buy** 1 call at strike K and **sell** N calls (N = 1, 2, 3 or 4) at a
-higher strike K+Δ.
-The screener evaluates every (K, K+Δ, N) combination and ranks them by how
-efficiently the short premium funds the long leg.
+---
 
-## Prerequisites
+## Inicio rápido (local con TWS)
 
-1. **Interactive Brokers account** with market-data subscriptions for options.
-2. **TWS or IB Gateway** running with API access enabled:
-   - TWS: *Edit → Global Configuration → API → Settings → Enable ActiveX and Socket Clients*
-   - Port defaults: TWS paper `7497`, TWS live `7496`, Gateway paper `4002`, Gateway live `4001`
-3. **Python 3.10+**
+### 1. Clonar el repositorio
 
-## Installation
+```bash
+git clone https://github.com/ivo189/options_ratio.git
+cd options_ratio
+```
+
+### 2. Instalar dependencias
 
 ```bash
 pip install -r requirements.txt
 ```
 
-Copy `.env.example` to `.env` and adjust the connection settings:
+### 3. Configurar la conexión
 
 ```bash
 cp .env.example .env
 ```
 
-## Usage
+Editar `.env` con tus datos:
+
+```env
+IBKR_HOST=127.0.0.1
+IBKR_PORT=7497          # TWS paper → 7497 | TWS live → 7496
+IBKR_CLIENT_ID=1
+```
+
+> Asegúrate de tener TWS o IB Gateway corriendo con la API habilitada:
+> *Edit → Global Configuration → API → Settings → Enable ActiveX and Socket Clients*
+
+### 4. Levantar el dashboard
 
 ```bash
-python screener.py SYMBOL YYYYMMDD [options]
+python3 app.py
 ```
 
-### Examples
+Abrir `http://localhost:5000` en el browser.
 
-```bash
-# Screen SPY calls expiring 2024-03-15 (default: top 20 results)
-python screener.py SPY 20240315
+---
 
-# Screen AAPL with up to 1:4 ratio, gap ≤ 3 strikes, short must cover ≥ 50%
-python screener.py AAPL 20240621 --ratio 4 --gap 3 --min-funding 50
+## Tabs del dashboard
 
-# Restrict strikes to $450–$510
-python screener.py SPY 20240315 --strike-low 450 --strike-high 510
+| Tab | Descripción |
+|-----|-------------|
+| **Manual** | Screenear un símbolo/expiración manualmente |
+| **Bot Scanner** | Watchlist automático con scan periódico + configuración del bot |
+| **Positions** | Registro de posiciones abiertas, cerradas y vencidas |
 
-# Use live TWS port
-python screener.py QQQ 20240315 --port 7496
+---
 
-# Verbose output
-python screener.py SPY 20240315 -v
-```
+## Bot Scanner — Configuración
 
-### Options
+En el sidebar del Bot Scanner hay dos secciones configurables que persisten en `bot_config.json`:
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--host` | `127.0.0.1` | TWS/Gateway host |
-| `--port` | `7497` | TWS/Gateway port |
-| `--client-id` | `1` | API client ID |
-| `--ratio` | `4` | Maximum short:long ratio (1–4) |
-| `--gap` | `4` | Maximum strike gap steps between legs (1–4) |
-| `--min-funding` | `0` | Min % of long ask covered by short premium |
-| `--top` | `20` | Number of top results to display |
-| `--strike-low` | — | Lower strike bound |
-| `--strike-high` | — | Upper strike bound |
-| `--no-otm-filter` | — | Disable automatic OTM-only filter |
-| `-v` / `--verbose` | — | Enable debug logging |
+### Apertura automática
 
-## Output columns
+| Parámetro | Descripción | Default |
+|-----------|-------------|---------|
+| Habilitada | Activa la apertura automática de posiciones | off |
+| Strike largo ≥ ATM + N% | El leg largo debe estar al menos N% por encima del precio actual | 10% |
+| Crédito neto mínimo | Crédito neto mínimo en $/sh (después de comisiones) | 0.00 |
 
-| Column | Meaning |
-|--------|---------|
-| Long K | Strike of the long (bought) call |
-| Short K | Strike of the short (sold) calls |
-| Ratio | 1:N (e.g. 1:2 means sell 2, buy 1) |
-| Gap | Strike steps between legs |
-| Long ask | Ask price of the long call |
-| Short bid | Bid price per short call |
-| Net $/share | Net debit (positive) or credit (negative with − sign) |
-| Funded % | `short_bid × N / long_ask × 100` |
-| Lower BE | Breakeven on the upside (long_strike + net_debit) |
-| Upper BE | Upper breakeven for ratio > 1:1 (where losses re-emerge) |
-| Max profit $ | Maximum P&L per lot at short strike expiry |
-| Score | Higher is better: `−(net_debit / spread_width)` |
+### Notificaciones Telegram
 
-## Scoring
+| Campo | Descripción |
+|-------|-------------|
+| Bot token | Token obtenido de @BotFather |
+| Chat ID | ID del chat/grupo destinatario (usar @userinfobot para obtenerlo) |
+| Alertar si precio > upper BE | Envía alerta cuando el subyacente supera el break-even superior |
+| Notificar apertura automática | Envía mensaje cuando el bot abre una posición |
+
+> `bot_config.json` está en `.gitignore` — el token de Telegram nunca se sube al repo.
+
+---
+
+## Estructura del proyecto
 
 ```
-score = −(net_debit / (short_strike − long_strike))
+app.py              Flask server + endpoints de la API
+bot_config.py       Configuración persistente del bot (dataclass)
+scanner_bot.py      Bot de scan periódico (watchlist)
+chain_fetcher.py    Obtención de cadenas de opciones vía IBKR
+ratio_analyzer.py   Análisis y ranking de ratio spreads
+roll_advisor.py     Análisis de escenarios de roll
+positions.py        Gestión de posiciones (CRUD, JSON)
+watchlist.py        Gestión de la watchlist del bot
+screener.py         CLI standalone (uso sin dashboard)
+templates/          Frontend (HTML/CSS/JS en un solo archivo)
+BOT_RULES.md        Reglas de operación automática y roadmap
 ```
 
-- **score > 0**: entered for a net credit (ideal)
-- **score = 0**: zero-cost spread
-- **score < 0**: still pays a net debit, but the ratio is favourable
+---
 
-Spreads are sorted descending by score; ties broken by max_profit_$.
+## Columnas del screener
+
+| Columna | Significado |
+|---------|-------------|
+| Long K | Strike del leg largo (call comprado) |
+| Short K | Strike del leg corto (calls vendidos) |
+| Ratio | 1:N (1:2 = vender 2, comprar 1) |
+| Net $/sh | Crédito neto por acción (positivo = cobras) |
+| Lower BE | Breakeven inferior |
+| Upper BE | Breakeven superior (donde vuelven las pérdidas) |
+| Max profit | P&L máximo por lote al vencimiento en el short strike |
+| Score | Mayor es mejor: `−(net_debit / spread_width)` |
+
+---
+
+## Prerrequisitos
+
+- Python 3.10+
+- Interactive Brokers account con suscripciones de datos de opciones
+- TWS o IB Gateway corriendo con API habilitada
+
+---
 
 ## Risk Warning
 
-Ratio spreads with N > 1 have **unlimited upside risk** beyond the short strike.
-Always understand your risk before trading.
+Los ratio spreads con N > 1 tienen **riesgo ilimitado al alza** más allá del short strike.
+Entendé bien el riesgo antes de operar.
