@@ -651,6 +651,50 @@ def api_positions_alerts():
     return jsonify({"alerts": alerts})
 
 
+@app.route("/api/historical-price")
+def api_historical_price():
+    """Return the closing price of a stock on or before a given expiration date.
+
+    Query params:
+      symbol  – ticker (e.g. NU)
+      date    – expiration in YYYYMMDD format
+    """
+    symbol   = request.args.get("symbol", "").strip().upper()
+    date_str = request.args.get("date",   "").strip()
+
+    if not symbol or not date_str:
+        return jsonify({"error": "symbol and date are required"}), 400
+
+    try:
+        exp_date = datetime.strptime(date_str, "%Y%m%d").date()
+    except ValueError:
+        return jsonify({"error": "date must be YYYYMMDD"}), 400
+
+    try:
+        import yfinance as yf
+        from datetime import timedelta
+
+        # Fetch a window ending the day after expiry to capture the expiry close
+        start = (exp_date - timedelta(days=7)).isoformat()
+        end   = (exp_date + timedelta(days=1)).isoformat()
+        df = yf.download(symbol, start=start, end=end, progress=False, auto_adjust=True)
+
+        if df.empty:
+            return jsonify({"error": f"No price data found for {symbol}"}), 404
+
+        # Keep only rows on or before expiration date
+        df = df[df.index.date <= exp_date]
+        if df.empty:
+            return jsonify({"error": "No data on or before the expiration date"}), 404
+
+        last_close  = round(float(df["Close"].iloc[-1]), 2)
+        actual_date = df.index[-1].date().isoformat()
+        return jsonify({"symbol": symbol, "date": actual_date, "close": last_close})
+
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 if __name__ == "__main__":
     port = int(os.getenv("DASHBOARD_PORT", 5000))
     print(f"\n  Options Ratio Screener dashboard → http://localhost:{port}\n")

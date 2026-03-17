@@ -508,6 +508,12 @@
     cursor: pointer; width: auto;
   }
   .btn-close-pos:hover { background: #3a1515; }
+  .btn-expire-pos {
+    font-size: 10px; padding: 2px 8px; background: #1f1505;
+    color: var(--orange); border: 1px solid #6e5019; border-radius: 4px; cursor: pointer; width: auto;
+  }
+  .btn-expire-pos:hover { background: #2e2008; }
+  .price-source { font-size: 10px; color: var(--text-muted); margin-top: 3px; min-height: 14px; font-style: italic; }
 
   /* Row checkboxes */
   .row-check { accent-color: var(--accent); width: 14px; height: 14px; cursor: pointer; }
@@ -736,9 +742,11 @@
 
 <!-- ── Close / Expire position modal ── -->
 <div class="modal-overlay" id="close-modal-overlay" onclick="closeCloseModal(event)">
-  <div class="modal" onclick="event.stopPropagation()" style="width:420px">
+  <div class="modal" onclick="event.stopPropagation()" style="width:440px">
     <h3 id="close-modal-title">Cerrar posición</h3>
-    <div style="margin-bottom:12px">
+
+    <!-- radio selector (hidden when forced-expired) -->
+    <div id="close-reason-selector" style="margin-bottom:12px">
       <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:6px">¿Cómo se cerró?</label>
       <div style="display:flex;gap:16px">
         <label style="font-size:12px;display:flex;align-items:center;gap:6px;cursor:pointer">
@@ -765,15 +773,16 @@
     <!-- expired fields -->
     <div id="close-expired-fields" style="display:none" class="modal-grid">
       <div class="modal-field span2">
-        <label>Precio del subyacente al vencimiento</label>
+        <label id="cm-underlying-label">Precio del subyacente al vencimiento</label>
         <input type="number" id="cm-underlying" step="0.01" min="0" oninput="updateClosePreview()">
+        <div class="price-source" id="cm-price-source"></div>
       </div>
     </div>
 
     <!-- result preview -->
     <div class="modal-preview" id="close-preview" style="margin-top:10px">
       <span class="mp-label">Resultado neto</span><span class="mp-val" id="cp-result">—</span>
-      <span class="mp-label"></span><span class="mp-val" style="font-size:9px;color:var(--text-muted)" id="cp-note"></span>
+      <span class="mp-label" id="cp-note-label"></span><span class="mp-val" style="font-size:9px;color:var(--text-muted)" id="cp-note"></span>
     </div>
 
     <div class="modal-actions">
@@ -1752,7 +1761,13 @@ function _pnlCell(v, extra="") {
   return `<td class="${cls}"${extra}>${sign}${v.toFixed(1)}</td>`;
 }
 
+let _positionsCache = {};  // id → position object
+
 function renderPositionsTable(alerts) {
+  // Populate cache for the close modal
+  _positionsCache = {};
+  alerts.forEach(p => { _positionsCache[p.id] = p; });
+
   const el = document.getElementById("pos-content");
   if (!alerts.length) {
     el.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:12px 0">Sin posiciones.</div>';
@@ -1778,9 +1793,12 @@ function renderPositionsTable(alerts) {
     const postCells = _POST.map(k => _pnlCell(sc[k]  ?? null)).join("");
     const actualCell = _pnlCell(p.pnl_current, ' class="pnl-actual"');
 
-    const isActive = p.status === "active";
-    const closeBtn = isActive
-      ? `<button class="btn-close-pos" onclick="openCloseModal('${escHtml(p.id)}','${escHtml(p.symbol)}',${p.n_short})">Cerrar</button>`
+    const isActive    = p.status === "active";
+    const isVencida   = isActive && p.dte != null && p.dte <= 0;
+    const closeBtn    = isActive
+      ? isVencida
+        ? `<button class="btn-expire-pos" onclick="openCloseModal('${escHtml(p.id)}')">Registrar resultado</button>`
+        : `<button class="btn-close-pos"  onclick="openCloseModal('${escHtml(p.id)}')">Cerrar</button>`
       : "";
 
     const resultCell = p.result_net != null
@@ -1829,15 +1847,70 @@ function renderPositionsTable(alerts) {
 // ── Close / Expire modal ──────────────────────────────────────────────────────
 let _closingId = null;
 
-function openCloseModal(id, symbol, nShort) {
+/** Compute P&L at expiry client-side (mirrors positions.py pnl_at_expiry). */
+function _pnlAtExpiry(p, underlying) {
+  const longPayoff  = Math.max(underlying - p.long_strike,  0) * p.lots * 100;
+  const shortPayoff = Math.max(underlying - p.short_strike, 0) * p.n_short * p.lots * 100;
+  return Math.round((p.entry_net_credit + longPayoff - shortPayoff) * 100) / 100;
+}
+
+async function openCloseModal(id) {
   _closingId = id;
-  document.getElementById("close-modal-title").textContent = `Cerrar posición — ${symbol} (1:${nShort})`;
-  document.querySelector('input[name="close-reason"][value="closed"]').checked = true;
-  document.getElementById("cm-long-bid").value  = "";
-  document.getElementById("cm-short-ask").value = "";
-  document.getElementById("cm-underlying").value = "";
+  const p = _positionsCache[id];
+  if (!p) return;
+
+  const expFmt     = p.expiration
+    ? `${p.expiration.slice(0,4)}-${p.expiration.slice(4,6)}-${p.expiration.slice(6)}`
+    : "—";
+  const isVencida  = p.dte != null && p.dte <= 0;
+
+  // Title
+  document.getElementById("close-modal-title").textContent = isVencida
+    ? `Registrar vencimiento — ${p.symbol} · ${expFmt} (1:${p.n_short})`
+    : `Cerrar posición — ${p.symbol} · ${expFmt} (1:${p.n_short})`;
+
+  // Show/hide radio selector
+  document.getElementById("close-reason-selector").style.display = isVencida ? "none" : "";
+
+  // Select the correct mode
+  const radioExpired = document.querySelector('input[name="close-reason"][value="expired"]');
+  const radioClosed  = document.querySelector('input[name="close-reason"][value="closed"]');
+  if (isVencida) radioExpired.checked = true;
+  else           radioClosed.checked  = true;
+
+  // Clear fields
+  document.getElementById("cm-long-bid").value    = "";
+  document.getElementById("cm-short-ask").value   = "";
+  document.getElementById("cm-underlying").value  = "";
+  document.getElementById("cm-price-source").textContent = "";
+  document.getElementById("cm-underlying").placeholder   = "";
+
   onCloseReasonChange();
   document.getElementById("close-modal-overlay").classList.add("open");
+
+  // Auto-fetch historical price when it's an expired position
+  if (isVencida && p.expiration) {
+    const srcEl = document.getElementById("cm-price-source");
+    const inEl  = document.getElementById("cm-underlying");
+    srcEl.textContent      = "Buscando precio histórico…";
+    inEl.placeholder       = "Cargando…";
+    try {
+      const r = await fetch(`/api/historical-price?symbol=${encodeURIComponent(p.symbol)}&date=${p.expiration}`);
+      const d = await r.json();
+      if (d.close != null) {
+        inEl.value            = d.close.toFixed(2);
+        inEl.placeholder      = "";
+        srcEl.textContent     = `Cierre sugerido · Yahoo Finance · ${d.date} — podés editarlo`;
+        updateClosePreview();
+      } else {
+        inEl.placeholder      = "Ingresá el precio manualmente";
+        srcEl.textContent     = d.error || "No se encontró precio histórico";
+      }
+    } catch {
+      inEl.placeholder        = "Ingresá el precio manualmente";
+      srcEl.textContent       = "Error al obtener precio histórico";
+    }
+  }
 }
 
 function closeCloseModal(e) {
@@ -1854,23 +1927,23 @@ function onCloseReasonChange() {
 
 function updateClosePreview() {
   const reason = document.querySelector('input[name="close-reason"]:checked').value;
+  const p      = _closingId ? _positionsCache[_closingId] : null;
   const resEl  = document.getElementById("cp-result");
   const noteEl = document.getElementById("cp-note");
-  resEl.textContent  = "—";
-  resEl.style.color  = "";
+  resEl.textContent = "—";
+  resEl.style.color = "";
   noteEl.textContent = "";
 
-  if (reason === "expired") {
+  if (reason === "expired" && p) {
     const s = parseFloat(document.getElementById("cm-underlying").value);
-    if (isNaN(s)) return;
-    noteEl.textContent = "P&L calculado a vencimiento";
-    // We don't have the position's full data here — server computes result_net
-    resEl.textContent = "se calculará al confirmar";
-  } else {
-    const lb = parseFloat(document.getElementById("cm-long-bid").value)  || 0;
-    const sa = parseFloat(document.getElementById("cm-short-ask").value) || 0;
-    noteEl.textContent = "incluye comisiones IBKR estimadas";
-    resEl.textContent  = "se calculará al confirmar";
+    if (!isNaN(s) && s >= 0) {
+      const pnl = _pnlAtExpiry(p, s);
+      resEl.textContent  = `${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}`;
+      resEl.style.color  = pnl >= 0 ? "var(--green)" : "var(--red)";
+      noteEl.textContent = "P&L a vencimiento · sin comisiones de cierre";
+    }
+  } else if (reason === "closed") {
+    noteEl.textContent = "se calculará al confirmar";
   }
 }
 
