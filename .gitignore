@@ -8,6 +8,7 @@ build/
 venv/
 *.log
 
-# Runtime data files (user-specific, persisted by the app)
+# Runtime data files (user-specific, may contain secrets like Telegram token)
 watchlist.json
 positions.json
+bot_config.json
