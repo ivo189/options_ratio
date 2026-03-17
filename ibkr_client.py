@@ -120,11 +120,6 @@ class IBKRClient(EWrapper, EClient):
             self._connect_error = f"IBKR rejected connection (code {errorCode}): {errorString}"
             self._connected.set()
             return
-        # Unblock option-params event if this req errored out (e.g. code 321)
-        if reqId in self._req_id_to_symbol:
-            symbol = self._req_id_to_symbol[reqId]
-            if symbol in self._option_params_event:
-                self._option_params_event[symbol].set()
         # Unblock any waiting tick event for this req
         if reqId in self._tick_events:
             self._tick_events[reqId].set()
@@ -168,18 +163,18 @@ class IBKRClient(EWrapper, EClient):
         symbol = self._req_id_to_symbol.get(reqId)
         if symbol is None:
             return
-        if exchange not in ("SMART", "CBOE"):
-            return
         data = self.option_params.get(symbol)
         if data is None:
             return
-        data["expirations"] = sorted(expirations)
-        data["strikes"] = sorted(strikes)
-        if symbol in self._option_params_event:
-            self._option_params_event[symbol].set()
+        # Keep the response with the most expirations across all exchanges.
+        # SMART usually gives the superset, but some tickers only appear on
+        # specific exchanges (PHLX, ISE, BATS, etc.) so we never filter by name.
+        if len(expirations) > len(data["expirations"]):
+            data["expirations"] = sorted(expirations)
+            data["strikes"] = sorted(strikes)
 
     def securityDefinitionOptionParameterEnd(self, reqId: int) -> None:  # noqa: N802
-        # Fire all pending events in case we only got non-SMART/CBOE exchanges
+        # All exchanges have reported — unblock any symbol still waiting.
         for event in self._option_params_event.values():
             event.set()
 
