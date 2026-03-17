@@ -165,7 +165,7 @@ class ScannerBot:
         try:
             client = IBKRClient(self.ibkr_host, self.ibkr_port, _BOT_CLIENT_ID)
             client.connect_and_run()
-        except ConnectionError as exc:
+        except (ConnectionError, ValueError, OSError) as exc:
             logger.warning("Bot scan: IBKR connection failed: %s", exc)
             ts = now_et.strftime("%H:%M ET")
             with self._results_lock:
