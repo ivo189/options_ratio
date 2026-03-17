@@ -18,6 +18,12 @@ logger = logging.getLogger(__name__)
 # Informational message codes that are not errors (market data farm status, etc.)
 _INFO_CODES = {2104, 2106, 2107, 2108, 2119, 2158, 10167}
 
+# Fatal connection-level errors that should abort the connection attempt immediately.
+_FATAL_CONNECT_CODES = {
+    326,  # client id already in use
+    507,  # bad message length / socket disconnect
+}
+
 
 class IBKRClient(EWrapper, EClient):
     """
@@ -44,7 +50,13 @@ class IBKRClient(EWrapper, EClient):
         self.port = port
         self.client_id = client_id
 
+        # Keep immutable copies — ibapi resets self.host/self.port to None
+        # on disconnect, so we need our own reference for error messages.
+        self._host = host
+        self._port = port
+
         self._connected = threading.Event()
+        self._connect_error: str | None = None   # set by error() for fatal codes
         self._next_req_id = 1
         self._req_id_lock = threading.Lock()
 
@@ -63,15 +75,17 @@ class IBKRClient(EWrapper, EClient):
 
     def connect_and_run(self) -> None:
         """Connect to TWS/Gateway and start the message loop in a daemon thread."""
-        self.connect(self.host, self.port, self.client_id)
+        self.connect(self._host, self._port, self.client_id)
         thread = threading.Thread(target=self.run, daemon=True)
         thread.start()
         if not self._connected.wait(timeout=10):
             raise ConnectionError(
-                f"Could not connect to IBKR at {self.host}:{self.port} "
+                f"Could not connect to IBKR at {self._host}:{self._port} "
                 f"(client_id={self.client_id}). "
                 "Make sure TWS / IB Gateway is running and API connections are enabled."
             )
+        if self._connect_error:
+            raise ConnectionError(self._connect_error)
         logger.info("Connected to IBKR (client_id=%d)", self.client_id)
 
     def disconnect_clean(self) -> None:
@@ -98,6 +112,11 @@ class IBKRClient(EWrapper, EClient):
             logger.debug("IBKR info [%d]: %s", errorCode, errorString)
             return
         logger.warning("IBKR error req=%d code=%d: %s", reqId, errorCode, errorString)
+        # Fatal connection errors — fail fast instead of waiting for the 10s timeout
+        if errorCode in _FATAL_CONNECT_CODES:
+            self._connect_error = f"IBKR rejected connection (code {errorCode}): {errorString}"
+            self._connected.set()
+            return
         # Unblock any waiting event for this req
         if reqId in self._tick_events:
             self._tick_events[reqId].set()
