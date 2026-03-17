@@ -86,6 +86,9 @@ class IBKRClient(EWrapper, EClient):
             )
         if self._connect_error:
             raise ConnectionError(self._connect_error)
+        # Fall back to delayed data when no live subscription is active.
+        # Type 3 = Delayed; IBKR will send live data automatically if subscribed.
+        self.reqMarketDataType(3)
         logger.info("Connected to IBKR (client_id=%d)", self.client_id)
 
     def disconnect_clean(self) -> None:
@@ -117,7 +120,12 @@ class IBKRClient(EWrapper, EClient):
             self._connect_error = f"IBKR rejected connection (code {errorCode}): {errorString}"
             self._connected.set()
             return
-        # Unblock any waiting event for this req
+        # Unblock option-params event if this req errored out (e.g. code 321)
+        if reqId in self._req_id_to_symbol:
+            symbol = self._req_id_to_symbol[reqId]
+            if symbol in self._option_params_event:
+                self._option_params_event[symbol].set()
+        # Unblock any waiting tick event for this req
         if reqId in self._tick_events:
             self._tick_events[reqId].set()
 
