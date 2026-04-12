@@ -556,6 +556,65 @@
   }
   .pos-table th.pnl-hdr { color: var(--accent); }
   .result-final { color: var(--purple); font-weight: 600; }
+
+  /* ── Butterfly (Mariposa) view ── */
+  #butterfly-view {
+    display: none;
+    grid-template-columns: 240px 1fr;
+    height: calc(100vh - 48px);
+  }
+  #butterfly-view.active { display: grid; }
+
+  .bf-sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 16px 14px;
+    overflow-y: auto;
+    display: flex; flex-direction: column; gap: 18px;
+  }
+
+  .bf-main {
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .bf-header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 20px; border-bottom: 1px solid var(--border);
+    background: var(--surface); flex-shrink: 0;
+  }
+  .bf-header h2 { font-size: 13px; font-weight: 600; }
+  .bf-meta { font-size: 11px; color: var(--text-muted); margin-left: auto; }
+  .bf-table-wrap { flex: 1; overflow: auto; padding: 16px 20px; }
+
+  .bf-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .bf-table th {
+    position: sticky; top: 0; background: var(--surface2);
+    text-align: right; padding: 6px 8px; font-size: 10px;
+    font-weight: 600; text-transform: uppercase; color: var(--text-muted);
+    border-bottom: 1px solid var(--border); white-space: nowrap;
+  }
+  .bf-table th:first-child { text-align: left; }
+  .bf-table td {
+    text-align: right; padding: 6px 8px;
+    font-variant-numeric: tabular-nums; border-bottom: 1px solid #1a2028;
+    white-space: nowrap;
+  }
+  .bf-table td:first-child { text-align: left; }
+  .bf-table tr:hover td { background: var(--surface2); }
+
+  .free-tag {
+    display: inline-block; border-radius: 4px; padding: 1px 7px;
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+  }
+  .free-yes  { background: #0f2a1a; color: var(--green-bright); border: 1px solid #2ea043; }
+  .free-comm { background: #0d2035; color: var(--blue);         border: 1px solid var(--accent); }
+  .free-no   { background: var(--surface2); color: var(--text-muted); border: 1px solid var(--border); }
+
+  .bf-empty {
+    color: var(--text-muted); font-size: 12px;
+    padding: 32px 0; text-align: center;
+  }
+  .bf-empty strong { color: var(--text); }
 </style>
 </head>
 <body>
@@ -573,6 +632,7 @@
     <button class="tab-btn active" id="tab-manual"     onclick="switchTab('manual')">Manual</button>
     <button class="tab-btn"        id="tab-bot"        onclick="switchTab('bot')">Bot Scanner</button>
     <button class="tab-btn"        id="tab-positions"  onclick="switchTab('positions')">Positions</button>
+    <button class="tab-btn"        id="tab-butterfly"  onclick="switchTab('butterfly')">🦋 Mariposas</button>
   </div>
 
   <div class="header-right">
@@ -802,6 +862,85 @@
   <div class="pos-table-wrap">
     <div id="pos-content">
       <div style="color:var(--text-muted);font-size:12px">Loading positions…</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Butterfly (Mariposa Comprada) view ── -->
+<div id="butterfly-view">
+
+  <!-- Butterfly sidebar -->
+  <aside class="bf-sidebar">
+    <div>
+      <div class="section-label">Subyacente</div>
+      <label>Symbol</label>
+      <input id="bf-symbol" type="text" value="SPY" style="text-transform:uppercase">
+      <label style="margin-top:10px">Vencimiento</label>
+      <select id="bf-expiration"></select>
+      <button class="load-exp-btn" id="bf-btn-load-exp" onclick="bfLoadExpirations()">Load expirations ↺</button>
+    </div>
+
+    <div>
+      <div class="section-label">Filtros</div>
+      <label>Costo neto máximo ($/acc)
+        <span class="help" title="Debit máximo por acción. 0 = solo mariposas gratis o con crédito.">?</span>
+      </label>
+      <input id="bf-max-cost" type="number" value="0.05" min="-5" max="5" step="0.05">
+
+      <label style="margin-top:10px">Cuerpo hasta +% sobre spot
+        <span class="help" title="Sólo considera strikes del cuerpo dentro de este porcentaje por encima del precio actual.">?</span>
+      </label>
+      <input id="bf-atm-band" type="number" value="30" min="5" max="100" step="5">
+
+      <div class="row2" style="margin-top:10px">
+        <div>
+          <label>Ala mín ($)</label>
+          <input id="bf-wing-min" type="number" value="0.5" min="0.25" step="0.25">
+        </div>
+        <div>
+          <label>Ala máx ($)</label>
+          <input id="bf-wing-max" type="number" placeholder="sin límite">
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="section-label">Display</div>
+      <label>Top resultados</label>
+      <input id="bf-top" type="number" value="20" min="5" max="100" step="5">
+      <label style="margin-top:10px">Lots (referencia comisiones)</label>
+      <input id="bf-lots" type="number" value="1" min="1" max="100" step="1">
+    </div>
+
+    <div class="btn-group">
+      <button class="btn-primary" id="bf-btn-screen" onclick="bfScreen()">▶ Scan Mariposas</button>
+      <button class="btn-secondary" onclick="bfClear()">Clear</button>
+    </div>
+
+    <div style="margin-top:auto;padding-top:14px;border-top:1px solid var(--border)">
+      <div class="section-label">¿Qué es una mariposa gratis?</div>
+      <div style="font-size:11px;color:var(--text-muted);line-height:1.7">
+        ask(K1) + ask(K3) − 2×bid(K2) ≤ 0<br>
+        <span style="color:var(--text)">No se paga nada al entrar.</span><br>
+        Todo el rango [K1, K3] es<br>
+        ganador al vencimiento.
+      </div>
+    </div>
+  </aside>
+
+  <!-- Butterfly results -->
+  <div class="bf-main">
+    <div class="bf-header">
+      <h2>Mariposas Compradas</h2>
+      <span id="bf-scan-ts" style="font-size:11px;color:var(--text-muted)"></span>
+      <span class="bf-meta" id="bf-meta"></span>
+    </div>
+    <div class="bf-table-wrap">
+      <div id="bf-content">
+        <div class="bf-empty">
+          Ingresá un símbolo, cargá los vencimientos y hacé click en <strong>Scan Mariposas</strong>.
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -1414,14 +1553,17 @@ function switchTab(tab) {
   const layout        = document.querySelector(".layout");
   const botView       = document.getElementById("bot-view");
   const posView       = document.getElementById("positions-view");
+  const bfView        = document.getElementById("butterfly-view");
   const tabManual     = document.getElementById("tab-manual");
   const tabBot        = document.getElementById("tab-bot");
   const tabPositions  = document.getElementById("tab-positions");
+  const tabButterfly  = document.getElementById("tab-butterfly");
 
   layout.style.display = "none";
   botView.classList.remove("active");
   posView.classList.remove("active");
-  [tabManual, tabBot, tabPositions].forEach(b => b.classList.remove("active"));
+  bfView.classList.remove("active");
+  [tabManual, tabBot, tabPositions, tabButterfly].forEach(b => b.classList.remove("active"));
 
   if (tab === "bot") {
     botView.classList.add("active");
@@ -1433,6 +1575,9 @@ function switchTab(tab) {
     posView.classList.add("active");
     tabPositions.classList.add("active");
     loadPositions();
+  } else if (tab === "butterfly") {
+    bfView.classList.add("active");
+    tabButterfly.classList.add("active");
   } else {
     layout.style.display = "";
     tabManual.classList.add("active");
@@ -2077,6 +2222,187 @@ function updateClosePreview() {
     noteEl.textContent = "se calculará al confirmar";
   }
 }
+
+// ── Butterfly (Mariposa Comprada) screener ────────────────────────────────────
+
+async function bfLoadExpirations() {
+  const sym = document.getElementById("bf-symbol").value.trim().toUpperCase();
+  if (!sym) { showToast("Ingresá un símbolo primero", true); return; }
+  const btn = document.getElementById("bf-btn-load-exp");
+  btn.disabled = true; btn.textContent = "Loading…";
+  try {
+    const r = await fetch(`/api/expirations?symbol=${encodeURIComponent(sym)}`);
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    const sel = document.getElementById("bf-expiration");
+    sel.innerHTML = "";
+    (d.expirations || []).forEach(e => {
+      const opt = document.createElement("option");
+      opt.value = e.value; opt.textContent = e.label;
+      sel.appendChild(opt);
+    });
+    showToast(`${d.expirations.length} vencimientos cargados para ${sym}`);
+  } catch (e) {
+    showToast("Error: " + e.message, true);
+  } finally {
+    btn.disabled = false; btn.textContent = "Load expirations ↺";
+  }
+}
+
+let _bfLastData = null;
+
+async function bfScreen() {
+  const sym    = document.getElementById("bf-symbol").value.trim().toUpperCase();
+  const exp    = document.getElementById("bf-expiration").value;
+  const cost   = parseFloat(document.getElementById("bf-max-cost").value);
+  const band   = parseFloat(document.getElementById("bf-atm-band").value);
+  const wingMn = parseFloat(document.getElementById("bf-wing-min").value);
+  const wingMxRaw = document.getElementById("bf-wing-max").value.trim();
+  const wingMx = wingMxRaw === "" ? null : parseFloat(wingMxRaw);
+  const topN   = parseInt(document.getElementById("bf-top").value);
+  const lots   = parseInt(document.getElementById("bf-lots").value);
+
+  if (!sym)  { showToast("Ingresá un símbolo", true); return; }
+  if (!exp)  { showToast("Cargá los vencimientos primero", true); return; }
+
+  const btn = document.getElementById("bf-btn-screen");
+  btn.disabled = true; btn.textContent = "Scanning…";
+  document.getElementById("bf-content").innerHTML =
+    `<div class="bf-empty"><span class="spinner" style="display:inline-block;width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--blue);border-radius:50%;animation:spin .7s linear infinite"></span> Buscando mariposas para ${escHtml(sym)}…</div>`;
+  document.getElementById("bf-meta").textContent = "";
+  document.getElementById("bf-scan-ts").textContent = "";
+
+  try {
+    const payload = {
+      symbol: sym, expiration: exp,
+      max_net_cost: isNaN(cost) ? 0.05 : cost,
+      atm_band_pct: isNaN(band) ? 30 : band,
+      min_wing_width: isNaN(wingMn) ? 0.5 : wingMn,
+      top: isNaN(topN) ? 20 : topN,
+      lots: isNaN(lots) ? 1 : lots,
+    };
+    if (wingMx !== null && !isNaN(wingMx)) payload.max_wing_width = wingMx;
+
+    const r = await fetch("/api/butterfly/screen", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(payload),
+    });
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+
+    _bfLastData = d;
+    bfRenderResults(d);
+
+  } catch (e) {
+    showToast("Error: " + e.message, true);
+    document.getElementById("bf-content").innerHTML =
+      `<div class="bf-empty" style="color:var(--red)">${escHtml(e.message)}</div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = "▶ Scan Mariposas";
+  }
+}
+
+function bfRenderResults(d) {
+  const spot  = d.underlying_price;
+  const cands = d.candidates || [];
+
+  document.getElementById("bf-scan-ts").textContent =
+    d.from_cache ? `⚠ datos del ${d.fetched_at}` : `Actualizado: ${d.fetched_at}`;
+
+  document.getElementById("bf-meta").textContent =
+    `${d.symbol} | spot $${spot} | exp ${d.expiration} | ${d.valid_quotes} strikes válidos`;
+
+  if (cands.length === 0) {
+    document.getElementById("bf-content").innerHTML =
+      `<div class="bf-empty">No se encontraron mariposas con los filtros actuales.<br>
+       Intentá aumentar el <strong>Costo neto máximo</strong> o ampliar el <strong>ala máx</strong>.</div>`;
+    return;
+  }
+
+  const freeCount = cands.filter(c => c.is_free).length;
+  const freeCommCount = cands.filter(c => !c.is_free && c.is_free_after_comm).length;
+
+  let html = `
+  <div style="margin-bottom:12px;font-size:11px;color:var(--text-muted)">
+    <span class="free-tag free-yes" style="margin-right:6px">${freeCount} GRATIS</span>
+    ${freeCommCount > 0 ? `<span class="free-tag free-comm" style="margin-right:6px">${freeCommCount} gratis c/com</span>` : ""}
+    de ${cands.length} candidatas &nbsp;·&nbsp; spot $${spot}
+  </div>
+  <table class="bf-table">
+    <thead>
+      <tr>
+        <th style="text-align:left">#</th>
+        <th>K1 ala</th>
+        <th>K2 cuerpo</th>
+        <th>K3 ala</th>
+        <th>Ancho</th>
+        <th>Cuerpo %</th>
+        <th title="Costo neto $/acción (−=crédito)">Costo/acc</th>
+        <th title="Costo neto $/lote tras comisiones">$/lote</th>
+        <th title="Break-even inferior al vencimiento">BE inf</th>
+        <th title="Break-even superior al vencimiento">BE sup</th>
+        <th title="Ganancia máxima si precio termina en K2">Max profit</th>
+        <th title="Riesgo máximo por lote">Max riesgo</th>
+        <th title="Reward/Risk">R/R</th>
+        <th>Estado</th>
+      </tr>
+    </thead>
+    <tbody>`;
+
+  cands.forEach((c, i) => {
+    const freeTag = c.is_free
+      ? `<span class="free-tag free-yes">GRATIS</span>`
+      : c.is_free_after_comm
+        ? `<span class="free-tag free-comm">gratis c/com</span>`
+        : `<span class="free-tag free-no">débito</span>`;
+
+    const costColor = c.net_cost < 0
+      ? "var(--green-bright)"
+      : c.net_cost === 0 ? "var(--text)"
+      : c.net_cost <= 0.05 ? "var(--yellow)" : "var(--text-muted)";
+
+    const costLot = c.net_cost_1lot_$ !== undefined ? c.net_cost_1lot_$ : c["net_cost_1lot_$"];
+    const costLotColor = (costLot <= 0) ? "var(--green-bright)" : "var(--text-muted)";
+
+    const beInf = c.is_free ? `<span style="color:var(--green)">≤ K1</span>` : (c.lower_BE != null ? `$${c.lower_BE}` : "—");
+    const beSup = c.is_free ? `<span style="color:var(--green)">≥ K3</span>` : (c.upper_BE != null ? `$${c.upper_BE}` : "—");
+
+    const rrVal = c.reward_risk;
+    const rrStr = rrVal == null ? "∞" : (rrVal > 999 ? ">999×" : `${rrVal}×`);
+
+    html += `
+      <tr>
+        <td style="text-align:left;color:var(--text-muted)">${i + 1}</td>
+        <td>$${c.lower_strike}</td>
+        <td style="color:var(--blue);font-weight:600">$${c.body_strike}</td>
+        <td>$${c.upper_strike}</td>
+        <td>$${c.wing_width}</td>
+        <td>${c.body_pct != null ? c.body_pct + "%" : "—"}</td>
+        <td style="color:${costColor}">${c.net_cost >= 0 ? "+" : ""}${c.net_cost.toFixed(4)}</td>
+        <td style="color:${costLotColor}">${costLot >= 0 ? "+" : ""}$${costLot.toFixed(2)}</td>
+        <td>${beInf}</td>
+        <td>${beSup}</td>
+        <td style="color:var(--green)">$${c.max_profit_1lot_$.toFixed(2)}</td>
+        <td style="color:var(--red)">$${c.max_risk_1lot_$.toFixed(2)}</td>
+        <td>${rrStr}</td>
+        <td>${freeTag}</td>
+      </tr>`;
+  });
+
+  html += `</tbody></table>`;
+  document.getElementById("bf-content").innerHTML = html;
+}
+
+function bfClear() {
+  _bfLastData = null;
+  document.getElementById("bf-content").innerHTML =
+    `<div class="bf-empty">Ingresá un símbolo, cargá los vencimientos y hacé click en <strong>Scan Mariposas</strong>.</div>`;
+  document.getElementById("bf-meta").textContent = "";
+  document.getElementById("bf-scan-ts").textContent = "";
+}
+
+// ── End butterfly screener ────────────────────────────────────────────────────
 
 async function confirmClose() {
   if (!_closingId) return;

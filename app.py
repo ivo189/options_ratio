@@ -22,6 +22,7 @@ from flask import Flask, render_template, request, jsonify
 from ibkr_client import IBKRClient
 from chain_fetcher import fetch_chain, get_underlying_price
 from ratio_analyzer import find_ratio_spreads
+from butterfly_analyzer import find_butterfly_spreads
 from roll_advisor import analyze_roll
 import positions as pos
 import watchlist as wl
@@ -306,6 +307,150 @@ def api_screen():
 
     except Exception as exc:
         logging.exception("Screener error")
+        return jsonify({"error": str(exc)}), 500
+
+
+# ---------------------------------------------------------------------------
+# Butterfly screener route
+# ---------------------------------------------------------------------------
+
+@app.route("/api/butterfly/screen", methods=["POST"])
+def api_butterfly_screen():
+    """
+    Screen for long butterfly (Mariposa Comprada) opportunities.
+
+    A butterfly is "free" when:
+      ask(K1) + ask(K3) - 2 × bid(K2) ≤ 0
+    i.e. the two wings together cost less than the body credit received,
+    resulting in zero or negative net outlay.
+
+    Request body (JSON):
+      symbol          : str   — underlying ticker (required)
+      expiration      : str   — YYYYMMDD (required)
+      max_net_cost    : float — $/share filter (default 0.05; use 0 for free-only)
+      atm_band_pct    : float — body within +X% above spot (default 30)
+      min_wing_width  : float — minimum wing width in $ (default 0.5)
+      max_wing_width  : float — optional maximum wing width in $
+      top             : int   — max results to return (default 20)
+      lots            : int   — reference lot size for commission display (default 1)
+      force_fresh     : bool  — bypass cache even when market is closed
+    """
+    body          = request.get_json(force=True)
+    symbol        = body.get("symbol", "").upper().strip()
+    expiration    = body.get("expiration", "").replace("-", "").strip()
+    max_net_cost  = float(body.get("max_net_cost", 0.05))
+    atm_band_pct  = float(body.get("atm_band_pct", 30.0))
+    min_wing_w    = float(body.get("min_wing_width", 0.5))
+    max_wing_w    = body.get("max_wing_width")
+    top_n         = int(body.get("top", 20))
+    lots          = max(1, int(body.get("lots", 1)))
+    force_fresh   = bool(body.get("force_fresh", False))
+
+    if not symbol:
+        return jsonify({"error": "symbol is required"}), 400
+    if not expiration or len(expiration) != 8 or not expiration.isdigit():
+        return jsonify({"error": "expiration must be YYYYMMDD"}), 400
+
+    if max_wing_w is not None:
+        max_wing_w = float(max_wing_w)
+
+    cache_key   = ("butterfly", symbol, expiration)
+    status      = _market_status()
+    market_open = status["open"]
+
+    # Serve cache when market is closed
+    if not market_open and not force_fresh and cache_key in _result_cache:
+        cached = dict(_result_cache[cache_key])
+        cached["from_cache"] = True
+        cached["market"]     = status
+        return jsonify(cached)
+
+    try:
+        client = _connect()
+        try:
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                price_fut  = pool.submit(get_underlying_price, client, symbol)
+                params_fut = pool.submit(client.request_option_params, symbol)
+                underlying_price = price_fut.result()
+                all_strikes      = params_fut.result().get("strikes", [])
+
+            if not all_strikes:
+                return jsonify({"error": f"No option parameters for {symbol}"}), 404
+
+            chain_df = fetch_chain(
+                client=client,
+                symbol=symbol,
+                expiration=expiration,
+                right="C",
+                strikes=all_strikes,
+                timeout_per_strike=6.0,
+                underlying_price=underlying_price,
+                otm_only=True,
+            )
+        finally:
+            client.disconnect_clean()
+
+        valid_count = int(chain_df["valid"].sum())
+        if valid_count == 0:
+            if cache_key in _result_cache:
+                cached = dict(_result_cache[cache_key])
+                cached["from_cache"] = True
+                cached["market"]     = status
+                cached["warning"]    = "No live quotes — showing last known data."
+                return jsonify(cached)
+            return jsonify({
+                "error": "No valid quotes received. Check market hours and TWS subscriptions."
+            }), 200
+
+        candidates = find_butterfly_spreads(
+            chain_df=chain_df,
+            underlying_price=underlying_price,
+            max_net_cost=max_net_cost,
+            atm_band_pct=atm_band_pct,
+            min_wing_width=min_wing_w,
+            max_wing_width=max_wing_w,
+            top_n=top_n,
+            lots=lots,
+        )
+
+        now_et = datetime.now(_ET)
+        chain_data = (
+            chain_df[chain_df["valid"]]
+            .assign(mid=lambda df: df["mid"].apply(
+                lambda x: None if math.isnan(x) else round(x, 2)
+            ))[["strike", "bid", "ask", "mid"]]
+            .to_dict(orient="records")
+        )
+
+        payload = {
+            "symbol":           symbol,
+            "expiration":       expiration,
+            "underlying_price": None if math.isnan(underlying_price) else round(underlying_price, 2),
+            "strikes_fetched":  len(chain_df),
+            "valid_quotes":     valid_count,
+            "candidates":       [{"rank": i + 1, **c.describe(lots=lots)}
+                                  for i, c in enumerate(candidates)],
+            "chain":            chain_data,
+            "market":           status,
+            "fetched_at":       now_et.strftime("%Y-%m-%d %H:%M:%S ET"),
+            "fetched_at_ts":    int(now_et.timestamp()),
+            "from_cache":       False,
+        }
+
+        _result_cache[cache_key] = payload
+        return jsonify(payload)
+
+    except ConnectionError as exc:
+        if cache_key in _result_cache:
+            cached = dict(_result_cache[cache_key])
+            cached["from_cache"] = True
+            cached["market"]     = status
+            cached["warning"]    = f"IBKR unreachable ({exc}) — showing last known data."
+            return jsonify(cached)
+        return jsonify({"error": str(exc)}), 503
+
+    except Exception as exc:
+        logging.exception("Butterfly screener error")
         return jsonify({"error": str(exc)}), 500
 
 
